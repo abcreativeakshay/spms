@@ -106,7 +106,7 @@ college-scoped (`collegeIds` claim, `superAdmin` bypasses).
 ```
 
 The suite uses `app.dependency_overrides` for the store and `dev:` tokens, so it never
-needs Firebase credentials. Current status: **78 passing**, ~84% statement coverage.
+needs Firebase credentials. Current status: **81 passing**, ~84% statement coverage.
 
 ## Performance
 

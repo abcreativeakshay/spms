@@ -82,6 +82,20 @@ def credential_source() -> dict[str, Any]:
     return {"source": "application_default"}
 
 
+def _missing_credentials_message(path: str) -> str:
+    parent = os.path.dirname(path) or "."
+    try:
+        entries = sorted(os.listdir(parent)) if os.path.isdir(parent) else []
+    except OSError:
+        entries = []
+    return (
+        f"GOOGLE_APPLICATION_CREDENTIALS points to {path}, which does not exist. "
+        f"Contents of {parent}: {entries or 'directory missing'}. "
+        f"Add a secret file named {os.path.basename(path)!r}; it is mounted at "
+        f"/etc/secrets/{os.path.basename(path)}."
+    )
+
+
 def init_firebase() -> Any:
     """Initialise (once) and return the firebase_admin app."""
     import firebase_admin
@@ -98,6 +112,10 @@ def init_firebase() -> Any:
     inline = settings.google_application_credentials_json
     if cred_path and os.path.exists(cred_path):
         cred = credentials.Certificate(cred_path)
+    elif cred_path:
+        # Explicitly configured but not mounted: fail with the directory listing rather
+        # than falling through to ApplicationDefault, which fails later inside Firestore.
+        raise RuntimeError(_missing_credentials_message(cred_path))
     elif inline:
         cred = credentials.Certificate(_parse_inline_credentials(inline))
     else:

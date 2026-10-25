@@ -61,3 +61,13 @@ def test_credential_source_prefers_an_existing_file(monkeypatch, tmp_path):
     info = fb.credential_source()
     assert info["source"] == "file"
     assert info["bytes"] == key.stat().st_size
+
+
+def test_missing_configured_file_lists_the_secrets_directory(monkeypatch, tmp_path):
+    (tmp_path / "other-key.json").write_text("{}")
+    monkeypatch.setattr(
+        fb.settings, "google_application_credentials", str(tmp_path / "service-account.json")
+    )
+    message = fb._missing_credentials_message(str(tmp_path / "service-account.json"))
+    assert "other-key.json" in message
+    assert "/etc/secrets/service-account.json" in message
