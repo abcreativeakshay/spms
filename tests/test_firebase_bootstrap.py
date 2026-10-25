@@ -63,6 +63,19 @@ def test_credential_source_prefers_an_existing_file(monkeypatch, tmp_path):
     assert info["bytes"] == key.stat().st_size
 
 
+def test_split_env_parts_are_joined(monkeypatch):
+    """A value that is too long for one env var can arrive as numbered parts."""
+    raw = json.dumps({**ACCOUNT, "private_key": "k" * 1700})
+    half = len(raw) // 2
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", raising=False)
+    monkeypatch.setattr(fb.settings, "google_application_credentials_json", None)
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS_JSON_1", raw[:half])
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS_JSON_2", raw[half:])
+
+    assert fb._inline_credentials() == raw
+    assert fb._parse_inline_credentials(raw)["project_id"] == "placement-app-144e3"
+
+
 def test_missing_configured_file_lists_the_secrets_directory(monkeypatch, tmp_path):
     (tmp_path / "other-key.json").write_text("{}")
     monkeypatch.setattr(

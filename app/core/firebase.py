@@ -68,19 +68,36 @@ def _parse_inline_credentials(raw: str) -> dict[str, Any]:
 def credential_source() -> dict[str, Any]:
     """Which credential source ``init_firebase`` will use, without exposing key material."""
     path = settings.google_application_credentials
-    inline = settings.google_application_credentials_json
+    inline = _inline_credentials()
     if path:
         resolved = _resolve_credentials_file(path)
         if resolved:
             return {"source": "file", "path": resolved, "bytes": os.path.getsize(resolved)}
+        if inline:
+            return {"source": "inline_json", "chars": len(inline), "fileMissing": path}
         return {
             "source": "missing_file",
             "path": path,
-            "inlineChars": len(inline or ""),
+            "inlineChars": 0,
         }
     if inline:
         return {"source": "inline_json", "chars": len(inline)}
     return {"source": "application_default"}
+
+
+def _inline_credentials() -> str:
+    """Service-account JSON from the environment, optionally split across numbered parts.
+
+    Hosts cap the length of a single environment value, which truncates a service-account
+    key mid-file. ``GOOGLE_APPLICATION_CREDENTIALS_JSON_1``..``_9`` are concatenated in
+    order, so each value can stay small.
+    """
+    parts = [
+        os.environ.get(f"GOOGLE_APPLICATION_CREDENTIALS_JSON_{index}", "")
+        for index in range(1, 10)
+    ]
+    joined = "".join(part for part in parts if part)
+    return joined or (settings.google_application_credentials_json or "")
 
 
 def _secret_candidates(path: str) -> list[str]:
@@ -159,20 +176,21 @@ def init_firebase() -> Any:
         return firebase_admin.get_app()
 
     cred: Any
-    # A mounted key file wins over inline JSON: hosts often cap environment variable
-    # length, which silently truncates a service-account key.
+    # A mounted key file wins over inline JSON; when the file is missing but inline
+    # credentials are present, the inline value is used so a broken mount does not block
+    # startup.
     cred_path = settings.google_application_credentials
-    inline = settings.google_application_credentials_json
-    if cred_path:
-        resolved = _resolve_credentials_file(cred_path)
-        if resolved is None:
-            # Explicitly configured but not mounted: fail here with the directory listing
-            # rather than falling through to ApplicationDefault, which fails later inside
-            # Firestore with a much less useful error.
-            raise RuntimeError(_missing_credentials_message(cred_path))
+    inline = _inline_credentials()
+    resolved = _resolve_credentials_file(cred_path) if cred_path else None
+    if resolved:
         cred = credentials.Certificate(resolved)
     elif inline:
         cred = credentials.Certificate(_parse_inline_credentials(inline))
+    elif cred_path:
+        # Explicitly configured but not mounted: fail here with the directory listing
+        # rather than falling through to ApplicationDefault, which fails later inside
+        # Firestore with a much less useful error.
+        raise RuntimeError(_missing_credentials_message(cred_path))
     else:
         cred = credentials.ApplicationDefault()
 

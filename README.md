@@ -106,7 +106,7 @@ college-scoped (`collegeIds` claim, `superAdmin` bypasses).
 ```
 
 The suite uses `app.dependency_overrides` for the store and `dev:` tokens, so it never
-needs Firebase credentials. Current status: **82 passing**, ~84% statement coverage.
+needs Firebase credentials. Current status: **83 passing**, ~84% statement coverage.
 
 ## Performance
 
@@ -288,9 +288,10 @@ SPA fallback to `index.html`. Connect the repo in the Netlify UI, then set
    by the blueprint.
 
 Do not paste the key into `GOOGLE_APPLICATION_CREDENTIALS_JSON` on Render: the dashboard
-truncates long values (a 2.4 KB key arrives cut off) and startup fails with
-`Expecting property name enclosed in double quotes`. The API still supports that variable
-for hosts with no secret-file mount, and prefers the mounted file when both exist.
+truncates long values (a 2.4 KB key arrived with 1,888 characters) and startup fails with
+`Expecting property name enclosed in double quotes`. If secret files cannot be mounted, split
+the key into `GOOGLE_APPLICATION_CREDENTIALS_JSON_1` and `_2` (each ~1.2 KB); the app
+concatenates them in order. A mounted file still wins when it exists.
 Free services sleep after 15 minutes idle, so the first request afterwards pays a cold
 start; the startup cache warm-up then runs in the background. Health probe: `/health`.
 
