@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Defense in depth: files are only reachable through short-lived signed URLs
+// minted by the backend service account.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

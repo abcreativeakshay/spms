@@ -1,0 +1,31 @@
+{
+  "indexes": [
+    { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "role", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeIds", "arrayConfig": "CONTAINS" }, { "fieldPath": "active", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "cgpa", "order": "DESCENDING" }] },
+    { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "placementStatus", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "placementStatus", "order": "ASCENDING" }] },
+    { "collectionGroup": "batches", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "startDate", "order": "DESCENDING" }] },
+    { "collectionGroup": "batches", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "trainerIds", "arrayConfig": "CONTAINS" }, { "fieldPath": "startDate", "order": "DESCENDING" }] },
+    { "collectionGroup": "sessions", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "date", "order": "DESCENDING" }] },
+    { "collectionGroup": "attendance", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "studentId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "attendance", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "sessionId", "order": "ASCENDING" }, { "fieldPath": "studentId", "order": "ASCENDING" }] },
+    { "collectionGroup": "attendance", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "studentId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "assessments", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "date", "order": "DESCENDING" }] },
+    { "collectionGroup": "assessments", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "date", "order": "DESCENDING" }] },
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "studentId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "assessmentId", "order": "ASCENDING" }, { "fieldPath": "studentId", "order": "ASCENDING" }] },
+    { "collectionGroup": "scores", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "drives", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "driveDate", "order": "DESCENDING" }] },
+    { "collectionGroup": "drives", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeIds", "arrayConfig": "CONTAINS" }, { "fieldPath": "driveDate", "order": "DESCENDING" }] },
+    { "collectionGroup": "applications", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "driveId", "order": "ASCENDING" }, { "fieldPath": "appliedAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "applications", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "studentId", "order": "ASCENDING" }, { "fieldPath": "appliedAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "applications", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "appliedAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "feedback", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "studentId", "order": "ASCENDING" }, { "fieldPath": "date", "order": "DESCENDING" }] },
+    { "collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "auditLogs", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "entity", "order": "ASCENDING" }, { "fieldPath": "timestamp", "order": "DESCENDING" }] },
+    { "collectionGroup": "auditLogs", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "actorId", "order": "ASCENDING" }, { "fieldPath": "timestamp", "order": "DESCENDING" }] }
+  ],
+  "fieldOverrides": []
+}
