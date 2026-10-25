@@ -279,13 +279,31 @@ Grant the runtime service account Firestore access instead of shipping a key, an
 `USE_FIREBASE=true`, `CORS_ORIGINS`, `FIREBASE_PROJECT_ID`, the readiness/attendance
 variables and `FIRESTORE_WARM_CACHE=true`.
 
-### API (Render / Fly.io / any container host)
+### API (Hugging Face Space)
 
-The repo ships a `Dockerfile` and a `render.yaml` blueprint, so a free Render web service
-can be created from the GitHub repo with no code changes. Set the same environment
-variables as above plus `GOOGLE_APPLICATION_CREDENTIALS_JSON` (the service-account JSON
-as a single-line secret value — never commit it). Free instances sleep when idle, so the
-first request after a pause pays a cold start.
+Hugging Face Spaces run the API from the same `Dockerfile`. `scripts/deploy_hf.py` stages a
+minimal copy of the backend (`app/`, `scripts/`, `requirements.txt`, `Dockerfile`) plus the
+Space `README.md` frontmatter (`sdk: docker`, `app_port: 8080`) and uploads it. `web/`,
+`tests/` and `secrets/` are never uploaded.
+
+```bash
+pip install huggingface_hub        # or: hf update
+hf auth login                      # token with write access
+python3 scripts/deploy_hf.py --space <user>/spms-api --cors https://<site>.netlify.app
+```
+
+The script creates the Space on the first run, sets the runtime variables
+(`USE_FIREBASE=true`, `WEB_CONCURRENCY=1`, `FIRESTORE_WARM_CACHE=true`, `CORS_ORIGINS`, ...)
+and, when `secrets/service-account.json` exists, stores it as the write-only Space secret
+`GOOGLE_APPLICATION_CREDENTIALS_JSON`. The API's own env parser accepts that secret as plain
+JSON or base64.
+
+The Space is reachable at `https://<user>-<space>.hf.space` (`/docs`, `/health`,
+`/api/v1`). Free Spaces sleep after a period of inactivity, so the first request afterwards
+pays a cold start; the startup cache warm-up then runs in the background.
+
+Any container host (Cloud Run, Render, Fly.io) works the same way: set the same variables
+and pass the service-account JSON through `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
 
 Uploaded resumes and offer letters are never public: the API returns short-lived signed
 URLs (`SIGNED_URL_TTL_SECONDS`).
