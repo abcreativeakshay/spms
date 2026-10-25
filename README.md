@@ -37,11 +37,11 @@ npm run dev          # http://localhost:5173
 ```
 
 `setup_local.py` is the only setup step. It copies the key to `secrets/service-account.json`
-(git-ignored, mode 600), writes `.env` (`USE_FIREBASE=true`, project id, key path, cache
-warm-up), and creates `web/.env` from `web/.env.example`, which already carries the
-project's public Firebase web config. Every value it writes is a default: re-running it
-never overwrites a non-empty setting you changed. `--check` samples Firestore and Firebase
-Auth and exits non-zero if the key, project or APIs are wrong.
+(git-ignored, mode 600), writes `.env` (`USE_FIREBASE=true`, project id, key path, matching
+storage bucket, cache warm-up), and creates `web/.env` from `web/.env.example`, which already
+carries the project's public Firebase web config. Every value it writes is a default:
+re-running it never overwrites a non-empty setting you changed. `--check` samples Firestore
+and Firebase Auth and exits non-zero if the key, project or APIs are wrong.
 
 Sign in on the **Email & password** tab with an account from the project (for example
 `admin@spms.dev`); the owner shares the passwords. The **Development** tab only works in
@@ -49,6 +49,16 @@ demo mode, because it bypasses Firebase Auth.
 
 `secrets/` is git-ignored. Never commit the service-account key, and rotate it if it has
 been shared outside the team.
+
+### If something fails
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `RuntimeError: GOOGLE_APPLICATION_CREDENTIALS points to …` | The key is not at `secrets/service-account.json`; re-run `setup_local.py --service-account …`. |
+| `PermissionDenied` / `The caller does not have permission` | The key belongs to a different Firebase project, or the Firestore API is disabled for it. |
+| `Token verification failed` after entering the password | The login reached Firebase but the API rejected the token; restart the API so it reloads `.env`. |
+| Resume upload returns `503 storage_unavailable` | Cloud Storage is not provisioned on the free plan; every other feature works. |
+| `uvicorn: command not found` | Use `.venv/bin/uvicorn` (or activate the venv first). |
 
 ---
 
@@ -235,8 +245,9 @@ export USE_FIREBASE=true
 This checkout is already wired to the `placement-app-144e3` Firebase project:
 
 - `.firebaserc` sets it as the default project for the Firebase CLI.
-- `web/.env` (git-ignored) contains the web app's `VITE_FIREBASE_*` config, so the
-  **Email & password** tab works after `npm run dev`.
+- `web/.env` (git-ignored, created by `setup_local.py` from `web/.env.example`) contains the
+  web app's `VITE_FIREBASE_*` config, so the **Email & password** tab works after
+  `npm run dev`.
 - Auth (email/password) and the Firestore `(default)` database are enabled.
 - The web API key is a public client identifier, not a server secret. Never commit a
   service account key.
@@ -269,21 +280,24 @@ npx firebase deploy --only firestore:rules,firestore:indexes
 
 ### Web client auth
 
-The Vite client reads `VITE_FIREBASE_*` from `web/.env` (git-ignored; already populated for this
-project) and enables the **Email & password** tab. Without those values, only development tokens
-work. Use `web/.env.example` as the template on a fresh machine. The client calls `/api/v1`
+The Vite client reads `VITE_FIREBASE_*` from `web/.env` (git-ignored; `setup_local.py`
+creates it, and `web/.env.example` is the checked-in template with this project's public
+config) and enables the **Email & password** tab. Without those values, only development
+tokens work. The client calls `/api/v1`
 through Vite's dev proxy; override the target with `VITE_PROXY_TARGET` (default
 `http://localhost:8080`) or set `VITE_API_BASE_URL` for a production build.
 
 ---
 
-## Deploy
+## Deploy (optional)
 
-The app is two deployments: a static React client and a Python API.
+Local, Firebase-backed runs are the supported setup. The repository can also be split into
+a static React client and a Python API, but as of now no public API is running, so the
+hosted client cannot sign in.
 
 | Piece | Host | Cost | Notes |
 | --- | --- | --- | --- |
-| Client | Hugging Face static Space | free | `scripts/deploy_hf_web.py` |
+| Client | Hugging Face static Space | free | `scripts/deploy_hf_web.py`; needs a reachable API URL |
 | API | Render (Docker) | free | `render.yaml`, sleeps when idle |
 
 ### Client (Hugging Face static Space)
@@ -313,23 +327,21 @@ SPA fallback to `index.html`. Connect the repo in the Netlify UI, then set
 `render.yaml` defines a free Docker web service running the repo's `Dockerfile`:
 
 1. Render dashboard → **New → Blueprint** → pick the `spms` repository.
-2. Add the service account as a **Secret File** — **Environment → Secret Files → Add**:
-   filename `service-account.json`, contents = `secrets/service-account.json`. Render mounts
-   it read-only for Docker services at `/etc/secrets/service-account.json`, and the blueprint
-   sets `GOOGLE_APPLICATION_CREDENTIALS` to that path. The image's app user is UID/GID 1000,
-   which is the group Render gives mounted secret files. Projected mounts (k8s-style
-   `..data` directories) are searched as well; if startup reports `missing_file`, the file
-   is not attached to this service.
+2. Provide the service account. Render's **Secret Files** did not mount reliably for this
+   service, so use environment variables: split the key JSON into two halves and set
+   `GOOGLE_APPLICATION_CREDENTIALS_JSON_1` and `GOOGLE_APPLICATION_CREDENTIALS_JSON_2`
+   (each ~1.2 KB; the app concatenates `_1`…`_9` in order before parsing). Do not paste the
+   whole key into one variable: the dashboard truncates long values and startup fails with
+   `Expecting property name enclosed in double quotes`.
+   If you do upload it as a **Secret File** named `service-account.json`, Render mounts it at
+   `/etc/secrets/service-account.json` and the blueprint's `GOOGLE_APPLICATION_CREDENTIALS`
+   points there; the image runs as UID/GID 1000 so the file is readable, and projected mounts
+   (k8s-style `..data` directories) are searched. A mounted file wins over inline values.
 3. Set `CORS_ORIGINS` to the client origin, e.g.
    `https://<user>-spms-web.static.hf.space` (public value, editable in the blueprint).
 4. `FIREBASE_PROJECT_ID`, `FIRESTORE_WARM_CACHE`, `WEB_CONCURRENCY=1` and the rest are set
    by the blueprint.
 
-Do not paste the key into `GOOGLE_APPLICATION_CREDENTIALS_JSON` on Render: the dashboard
-truncates long values (a 2.4 KB key arrived with 1,888 characters) and startup fails with
-`Expecting property name enclosed in double quotes`. If secret files cannot be mounted, split
-the key into `GOOGLE_APPLICATION_CREDENTIALS_JSON_1` and `_2` (each ~1.2 KB); the app
-concatenates them in order. A mounted file still wins when it exists.
 Free services sleep after 15 minutes idle, so the first request afterwards pays a cold
 start; the startup cache warm-up then runs in the background. Health probe: `/health`.
 

@@ -103,15 +103,28 @@ def configure(key: dict[str, str]) -> None:
     if not env_path.exists():
         shutil.copy2(example, env_path)
         print(".env <- .env.example")
+
+    # The example ships a placeholder bucket from the demo project; a real project needs
+    # its own bucket (or storage calls would target a bucket the key cannot access).
+    current = env_path.read_text()
+    bucket_line = next(
+        (line for line in current.splitlines() if line.startswith("FIREBASE_STORAGE_BUCKET=")),
+        "",
+    )
+    bucket = bucket_line.partition("=")[2].strip().strip('"').strip("'")
+    required = {
+        "USE_FIREBASE": "true",
+        "FIREBASE_PROJECT_ID": project,
+        "GOOGLE_APPLICATION_CREDENTIALS": "./secrets/service-account.json",
+        "SEED_DEMO": "false",
+        "ALLOW_DEV_TOKENS": "false",
+    }
+    if not bucket or "spms-demo" in bucket or not bucket.startswith(project):
+        required["FIREBASE_STORAGE_BUCKET"] = f"{project}.firebasestorage.app"
+
     upsert(
         env_path,
-        required={
-            "USE_FIREBASE": "true",
-            "FIREBASE_PROJECT_ID": project,
-            "GOOGLE_APPLICATION_CREDENTIALS": "./secrets/service-account.json",
-            "SEED_DEMO": "false",
-            "ALLOW_DEV_TOKENS": "false",
-        },
+        required=required,
         defaults={
             "FIREBASE_STORAGE_BUCKET": f"{project}.firebasestorage.app",
             "CORS_ORIGINS": "http://127.0.0.1:5173,http://localhost:5173",
