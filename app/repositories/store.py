@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import copy
 import threading
+import time
 import uuid
 from collections import defaultdict
 from functools import lru_cache
 from typing import Any, Literal, Protocol, Sequence
+
+from app.core.concurrency import submit
 
 Filter = tuple[str, str, Any]
 WriteOp = tuple[str, str, str | None, dict[str, Any] | None]  # (op, collection, id, data)
@@ -49,6 +52,12 @@ class DocumentStore(Protocol):
     ) -> list[dict[str, Any]]: ...
 
     def count(self, collection: str, filters: Sequence[Filter] = ()) -> int: ...
+
+    def counts_by(
+        self, collection: str, field: str, values: Sequence[Any], *, cap: int = 20000
+    ) -> dict[Any, int]:
+        """Count documents per value of ``field`` in one round-trip per 30 values."""
+        ...
 
     def write_batch(self, ops: Sequence[WriteOp]) -> None: ...
 
@@ -180,6 +189,18 @@ class MemoryStore:
         with self._lock:
             return sum(1 for doc in self._data[collection].values() if _matches(doc, filters))
 
+    def counts_by(
+        self, collection: str, field: str, values: Sequence[Any], *, cap: int = 20000
+    ) -> dict[Any, int]:
+        wanted = list(dict.fromkeys(values))
+        counts = {value: 0 for value in wanted}
+        with self._lock:
+            for doc in self._data[collection].values():
+                value = doc.get(field)
+                if value in counts:
+                    counts[value] += 1
+        return counts
+
     def write_batch(self, ops: Sequence[WriteOp]) -> None:
         for op, collection, doc_id, data in ops:
             if op == "delete":
@@ -193,9 +214,97 @@ class MemoryStore:
 # --------------------------------------------------------------------------- #
 # Firestore backend
 # --------------------------------------------------------------------------- #
+_FIRESTORE_IN_LIMIT = 30
+_CACHE_MAX_ENTRIES = 4096
+
+
+def _freeze(value: Any) -> Any:
+    """Make query arguments hashable so they can key the read cache."""
+    if isinstance(value, (list, tuple)):
+        return ("seq", tuple(_freeze(item) for item in value))
+    if isinstance(value, dict):
+        return ("map", tuple(sorted((str(k), _freeze(v)) for k, v in value.items())))
+    if isinstance(value, (str, bytes, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
 class FirestoreStore:
-    def __init__(self, client: Any) -> None:
+    """Firestore backend with a short read-through cache.
+
+    A dashboard screen re-reads the same handful of collections several times
+    (the signed-in user, the list itself, per-row counters). Each Firestore
+    round-trip is a network hop, so identical reads are served from memory for
+    ``cache_ttl`` seconds. Every write through this store drops the cached
+    entries for the collections it touched, so reads stay consistent with the
+    data this process has written.
+    """
+
+    def __init__(self, client: Any, *, cache_ttl: float | None = None) -> None:
         self._client = client
+        self._cache_ttl = _default_cache_ttl() if cache_ttl is None else cache_ttl
+        self._cache: dict[Any, tuple[float, Any]] = {}
+        self._refreshing: set[Any] = set()
+        self._cache_lock = threading.Lock()
+        self._generation: dict[str, int] = defaultdict(int)
+
+    # -- cache --------------------------------------------------------------
+    def _cached(self, collection: str, key: tuple[Any, ...], loader: Any) -> Any:
+        """Read through the cache, refreshing stale entries in the background.
+
+        A cache entry is *fresh* for ``cache_ttl`` seconds. After that it is
+        still served immediately while one background task refreshes it, so a
+        repeat visit never waits for Firestore just because time passed.
+        """
+        if self._cache_ttl <= 0:
+            return loader()
+        cache_key = (collection, self._generation[collection], *key)
+        now = time.monotonic()
+        with self._cache_lock:
+            hit = self._cache.get(cache_key)
+            if hit is not None:
+                if hit[0] + self._cache_ttl <= now and cache_key not in self._refreshing:
+                    self._refreshing.add(cache_key)
+                    submit(lambda: self._refresh(cache_key, loader))
+                return copy.deepcopy(hit[1])
+        value = loader()
+        self._remember(cache_key, value)
+        return value
+
+    def _remember(self, cache_key: Any, value: Any) -> None:
+        with self._cache_lock:
+            if len(self._cache) >= _CACHE_MAX_ENTRIES:
+                self._prune_locked()
+            self._cache[cache_key] = (time.monotonic(), copy.deepcopy(value))
+
+    def _refresh(self, cache_key: Any, loader: Any) -> None:
+        try:
+            self._remember(cache_key, loader())
+        finally:
+            with self._cache_lock:
+                self._refreshing.discard(cache_key)
+
+    def _prune_locked(self) -> None:
+        """Drop the oldest half of the cache; entries are only a latency hint."""
+        entries = sorted(self._cache.items(), key=lambda item: item[1][0])
+        self._cache = dict(entries[len(entries) // 2 :])
+
+    def _invalidate(self, *collections: str) -> None:
+        if self._cache_ttl <= 0:
+            return
+        with self._cache_lock:
+            for collection in collections:
+                self._generation[collection] += 1
+
+    def clear_cache(self) -> None:
+        with self._cache_lock:
+            self._cache.clear()
+            self._refreshing.clear()
+            self._generation.clear()
+
+    @property
+    def cache_enabled(self) -> bool:
+        return self._cache_ttl > 0
 
     def new_id(self) -> str:
         return self._client.collection("_ids").document().id
@@ -204,16 +313,20 @@ class FirestoreStore:
         return self._client.collection(collection).document(doc_id)
 
     def get(self, collection: str, doc_id: str) -> dict[str, Any] | None:
-        snapshot = self._ref(collection, doc_id).get()
-        if not snapshot.exists:
-            return None
-        return {"id": snapshot.id, **(snapshot.to_dict() or {})}
+        def load() -> dict[str, Any] | None:
+            snapshot = self._ref(collection, doc_id).get()
+            if not snapshot.exists:
+                return None
+            return {"id": snapshot.id, **(snapshot.to_dict() or {})}
+
+        return self._cached(collection, ("get", doc_id), load)
 
     def set(
         self, collection: str, doc_id: str, data: dict[str, Any], *, merge: bool = False
     ) -> dict[str, Any]:
         payload = {k: v for k, v in data.items() if k != "id"}
         self._ref(collection, doc_id).set(payload, merge=merge)
+        self._invalidate(collection)
         return {"id": doc_id, **payload}
 
     def update(self, collection: str, doc_id: str, patch: dict[str, Any]) -> dict[str, Any]:
@@ -225,11 +338,13 @@ class FirestoreStore:
             self._ref(collection, doc_id).update(payload)
         except FirestoreNotFound as exc:
             raise NotFound(f"{collection}/{doc_id} not found") from exc
+        self._invalidate(collection)
         snapshot = self._ref(collection, doc_id).get()
         return {"id": doc_id, **(snapshot.to_dict() or {})}
 
     def delete(self, collection: str, doc_id: str) -> None:
         self._ref(collection, doc_id).delete()
+        self._invalidate(collection)
 
     def _build_query(self, collection: str, filters: Sequence[Filter]) -> Any:
         from google.cloud.firestore_v1.base_query import FieldFilter
@@ -253,32 +368,55 @@ class FirestoreStore:
         start_value: Any = None,
         start_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        query = self._build_query(collection, filters)
-        direction = "DESCENDING" if descending else "ASCENDING"
-        if order_by:
-            query = query.order_by(order_by, direction=direction)
-            # Stable tiebreaker; start_after needs both key parts.
-            query = query.order_by("__name__", direction=direction)
-            if start_id:
-                query = query.start_after([start_value, self._ref(collection, start_id)])
-        if limit is not None:
-            query = query.limit(limit)
-        return [
-            {"id": snap.id, **(snap.to_dict() or {})}
-            for snap in query.stream()
-        ]
+        key = ("query", _freeze(list(filters)), order_by, descending, limit, _freeze(start_value), start_id)
+
+        def load() -> list[dict[str, Any]]:
+            query = self._build_query(collection, filters)
+            direction = "DESCENDING" if descending else "ASCENDING"
+            if order_by:
+                query = query.order_by(order_by, direction=direction)
+                # Stable tiebreaker; start_after needs both key parts.
+                query = query.order_by("__name__", direction=direction)
+                if start_id:
+                    query = query.start_after([start_value, self._ref(collection, start_id)])
+            if limit is not None:
+                query = query.limit(limit)
+            return [
+                {"id": snap.id, **(snap.to_dict() or {})}
+                for snap in query.stream()
+            ]
+
+        return self._cached(collection, key, load)
 
     def count(self, collection: str, filters: Sequence[Filter] = ()) -> int:
-        query = self._build_query(collection, filters)
-        result = query.count(alias="total").get()
-        return int(result[0][0].value)
+        def load() -> int:
+            query = self._build_query(collection, filters)
+            result = query.count(alias="total").get()
+            return int(result[0][0].value)
+
+        return self._cached(collection, ("count", _freeze(list(filters))), load)
+
+    def counts_by(
+        self, collection: str, field: str, values: Sequence[Any], *, cap: int = 20000
+    ) -> dict[Any, int]:
+        wanted = list(dict.fromkeys(values))
+        counts: dict[Any, int] = {value: 0 for value in wanted}
+        for start in range(0, len(wanted), _FIRESTORE_IN_LIMIT):
+            chunk = wanted[start : start + _FIRESTORE_IN_LIMIT]
+            # ``in`` on a single field is covered by the automatic single-field
+            # index, so this needs no composite index per call site.
+            for doc in self.query(collection, [(field, "in", chunk)], limit=cap):
+                value = doc.get(field)
+                if value in counts:
+                    counts[value] += 1
+        return counts
 
     def write_batch(self, ops: Sequence[WriteOp]) -> None:
-        from google.cloud import firestore as firestore_module
-
         batch = self._client.batch()
-        for op, collection, doc_id, data in ops:
+        touched: set[str] = set()
+        for op, collection, doc_id, data in ops:  # type: ignore[misc]
             ref = self._ref(collection, doc_id)  # type: ignore[arg-type]
+            touched.add(collection)
             if op == "delete":
                 batch.delete(ref)
             elif op == "update":
@@ -286,11 +424,18 @@ class FirestoreStore:
             else:
                 batch.set(ref, data or {})
         batch.commit()
+        self._invalidate(*touched)
 
 
 # --------------------------------------------------------------------------- #
 # Dependency
 # --------------------------------------------------------------------------- #
+def _default_cache_ttl() -> float:
+    from app.core.config import settings
+
+    return settings.firestore_cache_ttl_seconds
+
+
 @lru_cache
 def get_store() -> DocumentStore:
     from app.core.config import settings

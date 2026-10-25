@@ -1,0 +1,33 @@
+# Netlify hosts the React client only.
+#
+# The FastAPI backend needs a Python runtime, which Netlify Functions do not provide
+# (only JavaScript/TypeScript and Go are supported). Run the API on a Python host
+# (Cloud Run, Render, Fly.io, ...) and point the client at it with the
+# VITE_API_BASE_URL environment variable set in the Netlify UI, e.g.
+#   VITE_API_BASE_URL = https://spms-api.onrender.com/api/v1
+#
+# Required Netlify environment variables (Site configuration -> Environment variables):
+#   VITE_API_BASE_URL        absolute URL of the deployed API, including /api/v1
+#   VITE_FIREBASE_API_KEY
+#   VITE_FIREBASE_AUTH_DOMAIN
+#   VITE_FIREBASE_PROJECT_ID
+#   VITE_FIREBASE_APP_ID
+#   VITE_FIREBASE_STORAGE_BUCKET      (optional)
+#   VITE_FIREBASE_MESSAGING_SENDER_ID (optional)
+#
+# Deploy with:  npx netlify deploy --prod
+# or connect the GitHub repo in the Netlify UI (build settings are read from this file).
+
+[build]
+  base = "web"
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# SPA fallback: every unknown path is served the client so React Router can route it.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

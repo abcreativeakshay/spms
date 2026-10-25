@@ -50,9 +50,31 @@ async function parseError(response) {
   });
 }
 
+// Identical reads fired at the same moment share one request. React StrictMode
+// runs effects twice in development, and several widgets ask for the same list;
+// without this the browser issues duplicate round-trips for no reason.
+const inFlightGets = new Map();
+
 export async function api(path, { method = "GET", body, query, token, raw = false } = {}) {
-  const headers = {};
   const authToken = token ?? getToken();
+  const shareable = method === "GET" && !raw && body === undefined;
+  const url = `${API_BASE}${path}${buildQuery(query)}`;
+  const sharedKey = shareable ? `${authToken || ""}|${url}` : null;
+
+  if (sharedKey && inFlightGets.has(sharedKey)) {
+    return inFlightGets.get(sharedKey);
+  }
+
+  const request = performRequest(url, { method, body, authToken, raw });
+  if (sharedKey) {
+    inFlightGets.set(sharedKey, request);
+    request.finally(() => inFlightGets.delete(sharedKey)).catch(() => {});
+  }
+  return request;
+}
+
+async function performRequest(url, { method, body, authToken, raw }) {
+  const headers = {};
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
   let payload;
   if (body instanceof FormData) {
@@ -64,7 +86,7 @@ export async function api(path, { method = "GET", body, query, token, raw = fals
 
   let response;
   try {
-    response = await fetch(`${API_BASE}${path}${buildQuery(query)}`, {
+    response = await fetch(url, {
       method,
       headers,
       body: payload,

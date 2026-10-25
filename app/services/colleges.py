@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.config import settings
+from app.core.concurrency import gather
 from app.core.errors import Forbidden, NotFound
 from app.core.pagination import Page
 from app.core.scoping import ensure_college, is_super_admin, scoped_college_ids
@@ -33,9 +34,10 @@ class CollegesService:
 
         allowed = scoped_college_ids(actor)
         if allowed is not None:
-            # A scoped admin has a handful of colleges: reading them by id avoids
-            # a documentId "in" query and keeps pagination exact.
-            docs = [doc for cid in allowed if (doc := self.repos.colleges.get(cid)) is not None]
+            # A scoped admin has a handful of colleges: read them in one query and
+            # filter locally instead of issuing one round-trip per college.
+            allowed_set = set(allowed)
+            docs = [doc for doc in self.repos.colleges.all(cap=1000) if doc["id"] in allowed_set]
             if active is not None:
                 docs = [doc for doc in docs if doc.get("active", True) is active]
             if q:
@@ -48,7 +50,7 @@ class CollegesService:
                 limit=limit,
                 cursor=cursor,
             )
-            page.items = [self._decorate(doc) for doc in page.items]
+            page.items = self._decorate_many(page.items)
             return page
 
         filters: list[tuple[str, str, Any]] = []
@@ -64,14 +66,28 @@ class CollegesService:
             limit=limit,
             cursor=cursor,
         )
-        page.items = [self._decorate(doc) for doc in page.items]
+        page.items = self._decorate_many(page.items)
         return page
 
+    def _decorate_many(self, colleges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        ids = [college["id"] for college in colleges]
+        if not ids:
+            return []
+        # Two bulk queries for the whole page instead of two per college.
+        student_counts, batch_counts = gather(
+            lambda: self.repos.students.counts_by("collegeId", ids),
+            lambda: self.repos.batches.counts_by("collegeId", ids),
+        )
+        decorated = []
+        for college in colleges:
+            doc = dict(college)
+            doc["studentCount"] = student_counts.get(college["id"], 0)
+            doc["batchCount"] = batch_counts.get(college["id"], 0)
+            decorated.append(doc)
+        return decorated
+
     def _decorate(self, college: dict[str, Any]) -> dict[str, Any]:
-        doc = dict(college)
-        doc["studentCount"] = self.repos.students.count([("collegeId", "==", college["id"])])
-        doc["batchCount"] = self.repos.batches.count([("collegeId", "==", college["id"])])
-        return doc
+        return self._decorate_many([college])[0]
 
     def get(self, actor: Principal, college_id: str) -> dict[str, Any]:
         college = self.repos.colleges.get(college_id)

@@ -106,7 +106,40 @@ college-scoped (`collegeIds` claim, `superAdmin` bypasses).
 ```
 
 The suite uses `app.dependency_overrides` for the store and `dev:` tokens, so it never
-needs Firebase credentials. Current status: **62 passing**, ~84% statement coverage.
+needs Firebase credentials. Current status: **77 passing**, ~84% statement coverage.
+
+## Performance
+
+Every Firestore call is a network round-trip, and on a slow path to Google's APIs a single
+document read can take 0.4–2.5 s. The API therefore avoids round-trips instead of trying to
+make them faster:
+
+- **Read-through cache** in `FirestoreStore` (`FIRESTORE_CACHE_TTL_SECONDS`, default 30).
+  Entries are fresh for the TTL; after that the stale entry is still served immediately while
+  one background task refreshes it (stale-while-revalidate). Writes through the same process
+  bump a per-collection generation, so a mutation is visible to the next read.
+- **Bulk reads** (`counts_by`, `all_in`) replace the per-row counts/lookups that list screens
+  used to issue. `colleges`, `companies`, `drives` and `applications` decorate a whole page with
+  one or two queries.
+- **Parallel reads** (`app/core/concurrency.py`) fan independent reads out on a small pool, so
+  a dashboard pays the slowest read rather than the sum.
+- **Startup warm** (`FIRESTORE_WARM_CACHE=true`) calls the same service `list` methods the
+  screens call (colleges, companies, batches, users, students, applications, drives and the
+  placements dashboard) with the page sizes the web client requests, on a background thread.
+  The first screen after a restart does not wait for them.
+- **In-flight GET dedupe** in the web client: identical concurrent GETs (React StrictMode runs
+  effects twice) share one request.
+
+Measure it with:
+
+```bash
+SPMS_API_KEY=<web-api-key> SPMS_EMAIL=admin@... SPMS_PASSWORD=... \
+  .venv/bin/python scripts/bench_api.py
+```
+
+Expected shape: the first call to each endpoint is cold (network bound), repeats are single-digit
+milliseconds. The cache is per process, so with several Cloud Run instances a read can be up to
+one TTL stale on an instance that did not handle the write.
 
 ## API surface
 
@@ -208,24 +241,54 @@ through Vite's dev proxy; override the target with `VITE_PROXY_TARGET` (default
 
 ## Deploy
 
-**API (Cloud Run):**
+The app is two deployments: a static React client and a Python API.
+
+### Web client (Netlify)
+
+`netlify.toml` builds `web/` (`npm ci && npm run build`) and publishes `web/dist` with an
+SPA fallback to `index.html`.
+
+1. Connect the GitHub repo in the Netlify UI, or run `npx netlify deploy --prod` from the
+   repository root.
+2. Set these environment variables in **Site configuration → Environment variables**
+   (build time — Vite inlines them, so change them *before* the build):
+
+   | Variable | Value |
+   | --- | --- |
+   | `VITE_API_BASE_URL` | `https://<api-host>/api/v1` |
+   | `VITE_FIREBASE_API_KEY` | web API key |
+   | `VITE_FIREBASE_AUTH_DOMAIN` | `<project>.firebaseapp.com` |
+   | `VITE_FIREBASE_PROJECT_ID` | `placement-app-144e3` |
+   | `VITE_FIREBASE_APP_ID` | web app id |
+   | `VITE_FIREBASE_STORAGE_BUCKET` | optional |
+   | `VITE_FIREBASE_MESSAGING_SENDER_ID` | optional |
+
+3. Add the Netlify URL to the API's `CORS_ORIGINS` (comma-separated, no trailing slash)
+   and to the Firebase console's authorized domains for email/password sign-in.
+
+Netlify Functions cannot run this backend: Netlify only supports JavaScript/TypeScript and
+Go functions, so the FastAPI app must live on a Python host.
+
+### API (Cloud Run)
 
 ```bash
 gcloud run deploy spms-api --source . --region asia-south1 --allow-unauthenticated
 ```
 
-Mount the service account via Secret Manager or a runtime service account, and set
-`USE_FIREBASE=true`, `CORS_ORIGINS` and the readiness/attendance variables.
+Grant the runtime service account Firestore access instead of shipping a key, and set
+`USE_FIREBASE=true`, `CORS_ORIGINS`, `FIREBASE_PROJECT_ID`, the readiness/attendance
+variables and `FIRESTORE_WARM_CACHE=true`.
 
-**Web (Firebase Hosting):**
+### API (Render / Fly.io / any container host)
 
-```bash
-cd web && VITE_API_BASE_URL=https://spms-api-…run.app/api/v1 npm run build
-cd .. && npx firebase deploy --only hosting
-```
+The repo ships a `Dockerfile` and a `render.yaml` blueprint, so a free Render web service
+can be created from the GitHub repo with no code changes. Set the same environment
+variables as above plus `GOOGLE_APPLICATION_CREDENTIALS_JSON` (the service-account JSON
+as a single-line secret value — never commit it). Free instances sleep when idle, so the
+first request after a pause pays a cold start.
 
-`firebase.json` serves `web/dist` with SPA rewrites. Uploaded resumes and offer letters
-are never public: the API returns short-lived signed URLs (`SIGNED_URL_TTL_SECONDS`).
+Uploaded resumes and offer letters are never public: the API returns short-lived signed
+URLs (`SIGNED_URL_TTL_SECONDS`).
 
 ---
 

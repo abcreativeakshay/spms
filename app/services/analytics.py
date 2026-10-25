@@ -6,6 +6,7 @@ from statistics import median
 from typing import Any
 
 from app.core.config import settings
+from app.core.concurrency import gather
 from app.core.errors import NotFound
 from app.core.scoping import ensure_batch_access, ensure_college, ensure_student_access, scoped_college_ids
 from app.core.security import Principal
@@ -39,9 +40,11 @@ class AnalyticsService:
         batch = self.repos.batches.get(student["batchId"]) if student.get("batchId") else None
         ensure_student_access(actor, student, batch=batch)
 
-        attendance_docs = self.repos.attendance.for_student(student_id)
-        score_docs = self.repos.scores.for_student(student_id)
-        feedback_docs = self.repos.feedback.for_student(student_id)
+        attendance_docs, score_docs, feedback_docs = gather(
+            lambda: self.repos.attendance.for_student(student_id),
+            lambda: self.repos.scores.for_student(student_id),
+            lambda: self.repos.feedback.for_student(student_id),
+        )
 
         attendance_pct, _ = attendance_percentage(attendance_docs)
         assessment_avg = assessment_average(score_docs)
@@ -147,10 +150,13 @@ class AnalyticsService:
             raise NotFound(f"Batch {batch_id} not found", code="batch_not_found")
         ensure_batch_access(actor, batch)
 
-        students = self.repos.students.for_batch(batch_id)
-        attendance_docs = self.repos.attendance.for_batch(batch_id)
-        score_docs = self.repos.scores.for_batch(batch_id)
-        sessions = {s["id"]: s for s in self.repos.sessions.for_batch(batch_id, limit=2000)}
+        students, attendance_docs, score_docs, session_docs = gather(
+            lambda: self.repos.students.for_batch(batch_id),
+            lambda: self.repos.attendance.for_batch(batch_id),
+            lambda: self.repos.scores.for_batch(batch_id),
+            lambda: self.repos.sessions.for_batch(batch_id, limit=2000),
+        )
+        sessions = {s["id"]: s for s in session_docs}
 
         attendance_values = [float(s.get("attendancePct") or 0) for s in students if s.get("attendancePct") is not None]
         readiness_values = [float(s.get("readinessScore") or 0) for s in students]
@@ -248,9 +254,12 @@ class AnalyticsService:
             raise NotFound(f"College {college_id} not found", code="college_not_found")
         ensure_college(actor, college_id)
 
-        students = self.repos.students.for_college(college_id, limit=20000)
-        batches = {b["id"]: b for b in self.repos.batches.for_college(college_id, limit=1000)}
-        applications = self.repos.applications.all([("collegeId", "==", college_id)], cap=20000)
+        students, batch_docs, applications = gather(
+            lambda: self.repos.students.for_college(college_id, limit=20000),
+            lambda: self.repos.batches.for_college(college_id, limit=1000),
+            lambda: self.repos.applications.all([("collegeId", "==", college_id)], cap=20000),
+        )
+        batches = {b["id"]: b for b in batch_docs}
 
         placed_students = [s for s in students if s.get("placementStatus") == PlacementStatus.PLACED.value]
         packages = [float(s.get("placedCtc") or 0) for s in placed_students if s.get("placedCtc")]
@@ -339,9 +348,11 @@ class AnalyticsService:
 
         if college_id:
             ensure_college(actor, college_id)
-            students = self.repos.students.for_college(college_id, limit=20000)
-            applications = self.repos.applications.all([("collegeId", "==", college_id)], cap=20000)
-            drives = self.repos.drives.all(cap=5000)
+            students, applications, drives = gather(
+                lambda: self.repos.students.for_college(college_id, limit=20000),
+                lambda: self.repos.applications.all([("collegeId", "==", college_id)], cap=20000),
+                lambda: self.repos.drives.all(cap=5000),
+            )
             drives = [
                 d
                 for d in drives
@@ -350,19 +361,20 @@ class AnalyticsService:
         else:
             allowed = scoped_college_ids(actor)
             if allowed is None:
-                students = self.repos.students.all(cap=20000)
-                applications = self.repos.applications.all(cap=20000)
-                drives = self.repos.drives.all(cap=5000)
+                students, applications, drives = gather(
+                    lambda: self.repos.students.all(cap=20000),
+                    lambda: self.repos.applications.all(cap=20000),
+                    lambda: self.repos.drives.all(cap=5000),
+                )
             else:
-                students = []
-                for cid in allowed:
-                    students.extend(self.repos.students.for_college(cid, limit=20000))
-                applications = []
-                for cid in allowed:
-                    applications.extend(self.repos.applications.all([("collegeId", "==", cid)], cap=20000))
+                students, applications, drives = gather(
+                    lambda: self.repos.students.all_in("collegeId", allowed),
+                    lambda: self.repos.applications.all_in("collegeId", allowed),
+                    lambda: self.repos.drives.all(cap=5000),
+                )
                 drives = [
                     d
-                    for d in self.repos.drives.all(cap=5000)
+                    for d in drives
                     if not d.get("collegeIds") or set(allowed).intersection(d.get("collegeIds") or [])
                 ]
 
@@ -411,16 +423,19 @@ class AnalyticsService:
         by_college: dict[str, list[dict[str, Any]]] = {}
         for student in students:
             by_college.setdefault(student.get("collegeId") or "", []).append(student)
+        # One read for every college instead of one per college row.
+        college_names = {
+            college["id"]: college.get("name") for college in self.repos.colleges.all(cap=1000)
+        }
         by_college_rows = []
         for cid, college_students in by_college.items():
-            college = self.repos.colleges.get(cid) or {}
             placed = [
                 s for s in college_students if s.get("placementStatus") == PlacementStatus.PLACED.value
             ]
             by_college_rows.append(
                 {
                     "collegeId": cid,
-                    "collegeName": college.get("name"),
+                    "collegeName": college_names.get(cid),
                     "students": len(college_students),
                     "placed": len(placed),
                     "placementRate": ratio(len(placed), len(college_students)),
@@ -462,11 +477,12 @@ class AnalyticsService:
         ]
 
         time_to_placement = []
+        batches = {batch["id"]: batch for batch in self.repos.batches.all(cap=5000)}
         for application in selected_apps:
             student = next((s for s in students if s["id"] == application.get("studentId")), None)
             if not student or not student.get("batchId"):
                 continue
-            batch = self.repos.batches.get(student["batchId"])
+            batch = batches.get(student["batchId"])
             if not batch or not batch.get("startDate"):
                 continue
             try:

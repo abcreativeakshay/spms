@@ -9,6 +9,8 @@ credentials:
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import uuid
 from functools import lru_cache
@@ -32,6 +34,22 @@ def _apply_emulator_env() -> None:
             os.environ[key] = value
 
 
+def _decode_service_account(raw: str) -> dict[str, Any]:
+    """Parse a service-account JSON env var (plain JSON, or base64 of it)."""
+    text = raw.strip()
+    if not text.startswith("{"):
+        try:
+            text = base64.b64decode(text, validate=True).decode("utf-8")
+        except Exception as exc:  # noqa: BLE001 - misconfiguration
+            raise ValueError(
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON must be JSON or base64-encoded JSON"
+            ) from exc
+    data = json.loads(text)
+    if "private_key" in data:
+        data["private_key"] = data["private_key"].replace("\\n", "\n")
+    return data
+
+
 def init_firebase() -> Any:
     """Initialise (once) and return the firebase_admin app."""
     import firebase_admin
@@ -42,8 +60,11 @@ def init_firebase() -> Any:
         return firebase_admin.get_app()
 
     cred: Any
+    inline = settings.google_application_credentials_json
     cred_path = settings.google_application_credentials
-    if cred_path and os.path.exists(cred_path):
+    if inline:
+        cred = credentials.Certificate(_decode_service_account(inline))
+    elif cred_path and os.path.exists(cred_path):
         cred = credentials.Certificate(cred_path)
     else:
         cred = credentials.ApplicationDefault()
@@ -78,7 +99,7 @@ class FirebaseTokenVerifier:
         from firebase_admin import auth
 
         init_firebase()
-        return auth.verify_id_token(token, check_revoked=True)
+        return auth.verify_id_token(token, check_revoked=settings.firebase_check_revoked)
 
 
 class LocalTokenVerifier:

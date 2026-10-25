@@ -11,7 +11,7 @@ Student Placement Management System. FastAPI + Firebase (Auth, Firestore, Storag
 | Database | Cloud Firestore via `firebase-admin` |
 | Files | Firebase Cloud Storage (signed URLs only) |
 | Web client | React 18 + Vite + Tailwind |
-| Hosting | Cloud Run (backend Docker), Firebase Hosting (frontend) |
+| Hosting | Netlify (React client), Cloud Run or Render (FastAPI Docker) |
 | Tests | pytest, httpx, in-memory store, optional Firebase Emulator Suite |
 
 ## Folder structure

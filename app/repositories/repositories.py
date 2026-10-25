@@ -69,6 +69,19 @@ class BaseRepository:
     def count(self, filters: Sequence[Filter] = ()) -> int:
         return self.store.count(self.collection, list(filters))
 
+    def counts_by(self, field: str, values: Sequence[Any], *, cap: int = 20000) -> dict[Any, int]:
+        """Count documents per value of ``field`` using one query per 30 values."""
+        return self.store.counts_by(self.collection, field, list(values), cap=cap)
+
+    def all_in(self, field: str, values: Sequence[Any], *, cap: int = 20000) -> list[dict[str, Any]]:
+        """Fetch every document whose ``field`` is one of ``values``."""
+        docs: list[dict[str, Any]] = []
+        unique = list(dict.fromkeys(values))
+        for start in range(0, len(unique), 30):
+            chunk = unique[start : start + 30]
+            docs.extend(self.all([(field, "in", chunk)], cap=cap))
+        return docs
+
     def all(self, filters: Sequence[Filter] = (), *, cap: int = 5000) -> list[dict[str, Any]]:
         """Bounded scan for aggregation jobs (never exposed as a list endpoint)."""
         return self.store.query(self.collection, list(filters), limit=cap)

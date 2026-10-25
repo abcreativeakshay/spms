@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date
 from typing import Any
 
@@ -73,7 +74,7 @@ class DrivesService:
 
         docs.sort(key=lambda d: (d.get("driveDate") or "", d["id"]), reverse=True)
         page = paginate_items(docs, order_by="driveDate", limit=limit, cursor=cursor)
-        page.items = [self._decorate(d) for d in page.items]
+        page.items = self._decorate_many(page.items)
         return page
 
     def _list_for_student(
@@ -96,9 +97,15 @@ class DrivesService:
         docs.sort(key=lambda d: (d.get("driveDate") or "", d["id"]))
         page = paginate_items(docs, order_by="driveDate", descending=False, limit=limit, cursor=cursor)
 
+        # One query for this student's applications instead of one per drive.
+        by_drive = {
+            application.get("driveId"): application
+            for application in self.repos.applications.for_student(student["id"])
+        }
+
         items = []
         for drive in page.items:
-            application = self.repos.applications.for_drive_student(drive["id"], student["id"])
+            application = by_drive.get(drive["id"])
             decorated = dict(drive)
             decorated["eligibilityResult"] = evaluate_eligibility(
                 drive,
@@ -255,24 +262,37 @@ class DrivesService:
         if drive_colleges:
             ensure_any_college(actor, drive_colleges)
 
+    def _decorate_many(self, drives: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not drives:
+            return []
+        drive_ids = [drive["id"] for drive in drives]
+        # One query for every application on the page instead of one per drive.
+        by_drive: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for application in self.repos.applications.all_in("driveId", drive_ids, cap=5000):
+            by_drive[application.get("driveId")].append(application)
+
+        decorated = []
+        for drive in drives:
+            doc = dict(drive)
+            stats = {
+                "eligible": 0,
+                "applied": 0,
+                "shortlisted": 0,
+                "selected": 0,
+                "rejected": 0,
+                "withdrawn": 0,
+            }
+            for application in by_drive.get(drive["id"], []):
+                status_value = application.get("status")
+                stats["applied"] += 1
+                if status_value and status_value != "applied" and status_value in stats:
+                    stats[status_value] += 1
+            doc["stats"] = stats
+            decorated.append(doc)
+        return decorated
+
     def _decorate(self, drive: dict[str, Any]) -> dict[str, Any]:
-        doc = dict(drive)
-        applications = self.repos.applications.for_drive(drive["id"], limit=5000)
-        stats = {
-            "eligible": 0,
-            "applied": 0,
-            "shortlisted": 0,
-            "selected": 0,
-            "rejected": 0,
-            "withdrawn": 0,
-        }
-        for application in applications:
-            status_value = application.get("status")
-            stats["applied"] += 1
-            if status_value and status_value != "applied" and status_value in stats:
-                stats[status_value] += 1
-        doc["stats"] = stats
-        return doc
+        return self._decorate_many([drive])[0]
 
     def _resolve_colleges(
         self, actor: Principal, college_ids: list[str], batch_ids: list[str]

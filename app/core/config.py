@@ -26,10 +26,24 @@ class Settings(BaseSettings):
     use_firebase: bool = False
     firebase_project_id: str = "spms-demo"
     google_application_credentials: str | None = None
+    # Service-account JSON inline (JSON text or base64). Hosts like Render/Fly have no
+    # writable secret file, so the key is passed as an environment variable instead.
+    google_application_credentials_json: str | None = None
     firebase_storage_bucket: str = "spms-demo.appspot.com"
     firebase_auth_emulator_host: str | None = None
     firestore_emulator_host: str | None = None
     firebase_storage_emulator_host: str | None = None
+    # Checking revocation costs a round-trip to Identity Toolkit on every request.
+    # Leave it off unless immediate token revocation is a hard requirement.
+    firebase_check_revoked: bool = False
+    # Short-lived read-through cache in front of Firestore. Every dashboard screen
+    # reads the same handful of collections, so a few seconds of reuse removes most
+    # of the round-trips. Writes through the same process invalidate the collection
+    # immediately. 0 disables the cache.
+    firestore_cache_ttl_seconds: float = 30.0
+    # Load the small, frequently-read collections into the cache at startup so the
+    # first page view does not pay the full round-trip cost.
+    firestore_warm_cache: bool = True
 
     # Web
     cors_origins: str = "http://localhost:5173,http://localhost:3000"

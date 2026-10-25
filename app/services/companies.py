@@ -40,13 +40,24 @@ class CompaniesService:
             limit=limit,
             cursor=cursor,
         )
-        page.items = [self._decorate(doc) for doc in page.items]
+        page.items = self._decorate_many(page.items)
         return page
 
+    def _decorate_many(self, companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        ids = [company["id"] for company in companies]
+        if not ids:
+            return []
+        # One query for the whole page instead of one count per company.
+        drive_counts = self.repos.drives.counts_by("companyId", ids)
+        decorated = []
+        for company in companies:
+            doc = dict(company)
+            doc["driveCount"] = drive_counts.get(company["id"], 0)
+            decorated.append(doc)
+        return decorated
+
     def _decorate(self, company: dict[str, Any]) -> dict[str, Any]:
-        doc = dict(company)
-        doc["driveCount"] = self.repos.drives.count([("companyId", "==", company["id"])])
-        return doc
+        return self._decorate_many([company])[0]
 
     def get(self, actor: Principal, company_id: str) -> dict[str, Any]:
         company = self.repos.companies.get(company_id)

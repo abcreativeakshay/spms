@@ -56,6 +56,18 @@ async def lifespan(_: FastAPI):
 
         init_firebase()
         logger.info("Firebase initialized", extra={"extra_fields": {"project": settings.firebase_project_id}})
+        if settings.firestore_warm_cache:
+            import threading
+
+            from app.core.warm import warm_caches
+            from app.repositories.store import get_store
+
+            threading.Thread(
+                target=warm_caches,
+                args=(get_store(),),
+                name="spms-cache-warm",
+                daemon=True,
+            ).start()
     else:
         logger.warning(
             "Running with the in-memory store. Set USE_FIREBASE=true for Firestore.",
