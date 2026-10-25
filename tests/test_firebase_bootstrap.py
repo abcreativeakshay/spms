@@ -34,3 +34,10 @@ def test_escaped_newlines_in_private_key_are_restored():
 def test_garbage_is_rejected_with_a_clear_error():
     with pytest.raises(ValueError, match="base64-encoded JSON"):
         fb._decode_service_account("not-a-service-account")
+
+
+def test_truncated_env_value_points_at_secret_files():
+    long_key = "-----BEGIN PRIVATE KEY-----\\n" + "A" * 1700 + "\\n-----END PRIVATE KEY-----\\n"
+    truncated = json.dumps({**ACCOUNT, "private_key": long_key})[:1888]
+    with pytest.raises(ValueError, match="secret file"):
+        fb._parse_inline_credentials(truncated)

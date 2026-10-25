@@ -106,7 +106,7 @@ college-scoped (`collegeIds` claim, `superAdmin` bypasses).
 ```
 
 The suite uses `app.dependency_overrides` for the store and `dev:` tokens, so it never
-needs Firebase credentials. Current status: **77 passing**, ~84% statement coverage.
+needs Firebase credentials. Current status: **78 passing**, ~84% statement coverage.
 
 ## Performance
 
@@ -275,14 +275,19 @@ SPA fallback to `index.html`. Connect the repo in the Netlify UI, then set
 `render.yaml` defines a free Docker web service running the repo's `Dockerfile`:
 
 1. Render dashboard → **New → Blueprint** → pick the `spms` repository.
-2. Fill the two values marked `sync: false`:
-   - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — the contents of `secrets/service-account.json`
-     (one line; the API accepts plain JSON or base64).
-   - `CORS_ORIGINS` — the client origin, e.g.
-     `https://<user>-spms-web.static.hf.space`.
-3. `FIREBASE_PROJECT_ID`, `FIRESTORE_WARM_CACHE`, `WEB_CONCURRENCY=1` and the rest are set
+2. Add the service account as a **Secret File** — **Environment → Secret Files → Add**:
+   filename `service-account.json`, contents = `secrets/service-account.json`. Render mounts
+   it read-only at `/etc/secrets/service-account.json`, and the blueprint already sets
+   `GOOGLE_APPLICATION_CREDENTIALS` to that path.
+3. Set `CORS_ORIGINS` to the client origin, e.g.
+   `https://<user>-spms-web.static.hf.space` (public value, editable in the blueprint).
+4. `FIREBASE_PROJECT_ID`, `FIRESTORE_WARM_CACHE`, `WEB_CONCURRENCY=1` and the rest are set
    by the blueprint.
 
+Do not paste the key into `GOOGLE_APPLICATION_CREDENTIALS_JSON` on Render: the dashboard
+truncates long values (a 2.4 KB key arrives cut off) and startup fails with
+`Expecting property name enclosed in double quotes`. The API still supports that variable
+for hosts with no secret-file mount, and prefers the mounted file when both exist.
 Free services sleep after 15 minutes idle, so the first request afterwards pays a cold
 start; the startup cache warm-up then runs in the background. Health probe: `/health`.
 

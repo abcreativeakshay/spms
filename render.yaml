@@ -38,5 +38,8 @@ services:
       # Public origins, not secrets: update when the client moves (Netlify, custom domain).
       - key: CORS_ORIGINS
         value: https://abcreativeakshay-spms-web.static.hf.space
-      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
-        sync: false
+      # The service account is a Render Secret File (Environment -> Secret Files),
+      # mounted at /etc/secrets/service-account.json. Do not inline it in an env var:
+      # Render truncates long values and the JSON then fails to parse.
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/service-account.json

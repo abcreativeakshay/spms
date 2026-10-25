@@ -50,6 +50,21 @@ def _decode_service_account(raw: str) -> dict[str, Any]:
     return data
 
 
+def _parse_inline_credentials(raw: str) -> dict[str, Any]:
+    """``_decode_service_account`` with a diagnosis that never prints the key."""
+    try:
+        return _decode_service_account(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON "
+            f"({exc.msg} at line {exc.lineno}, char {exc.pos}); received "
+            f"{len(raw)} chars, ends with a closing brace: "
+            f"{raw.rstrip().endswith('}')}. Most hosts cap environment variable "
+            "length, so prefer a mounted secret file with "
+            "GOOGLE_APPLICATION_CREDENTIALS."
+        ) from exc
+
+
 def init_firebase() -> Any:
     """Initialise (once) and return the firebase_admin app."""
     import firebase_admin
@@ -60,12 +75,14 @@ def init_firebase() -> Any:
         return firebase_admin.get_app()
 
     cred: Any
-    inline = settings.google_application_credentials_json
+    # A mounted key file wins over inline JSON: hosts often cap environment variable
+    # length, which silently truncates a service-account key.
     cred_path = settings.google_application_credentials
-    if inline:
-        cred = credentials.Certificate(_decode_service_account(inline))
-    elif cred_path and os.path.exists(cred_path):
+    inline = settings.google_application_credentials_json
+    if cred_path and os.path.exists(cred_path):
         cred = credentials.Certificate(cred_path)
+    elif inline:
+        cred = credentials.Certificate(_parse_inline_credentials(inline))
     else:
         cred = credentials.ApplicationDefault()
 
