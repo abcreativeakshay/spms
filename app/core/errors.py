@@ -64,6 +64,11 @@ class Unprocessable(AppError):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+class ServiceUnavailable(AppError):
+    code = "service_unavailable"
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+
 def _payload(code: str, message: str, details: Any = None) -> dict[str, Any]:
     body: dict[str, Any] = {"code": code, "message": message}
     if details is not None:

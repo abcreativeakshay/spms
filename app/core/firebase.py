@@ -241,10 +241,35 @@ class FirebaseStorage:
         init_firebase()
         return storage.bucket()
 
+    @staticmethod
+    def _unavailable(exc: Exception) -> Any:
+        from app.core.errors import ServiceUnavailable
+
+        return ServiceUnavailable(
+            "Cloud Storage is unavailable for this project. Uploads and signed URLs "
+            "need an existing Storage bucket.",
+            code="storage_unavailable",
+            details={"bucket": settings.firebase_storage_bucket},
+        )
+
+    def _guarded(self, call: Any) -> Any:
+        from app.core.errors import ServiceUnavailable
+        from google.api_core.exceptions import GoogleAPIError
+
+        try:
+            return call()
+        except (GoogleAPIError, ValueError, OSError) as exc:
+            raise self._unavailable(exc) from exc
+        except ServiceUnavailable:
+            raise
+
     def upload(self, path: str, data: bytes, content_type: str) -> str:
-        blob = self._bucket().blob(path)
-        blob.upload_from_string(data, content_type=content_type)
-        return path
+        def _upload() -> str:
+            blob = self._bucket().blob(path)
+            blob.upload_from_string(data, content_type=content_type)
+            return path
+
+        return self._guarded(_upload)
 
     def signed_url(self, path: str, ttl_seconds: int) -> str:
         from datetime import timedelta
@@ -255,11 +280,20 @@ class FirebaseStorage:
             )
             bucket = settings.firebase_storage_bucket
             return f"http://{host}/v0/b/{bucket}/o/{quote(path, safe='')}?alt=media"
-        blob = self._bucket().blob(path)
-        return blob.generate_signed_url(version="v4", expiration=timedelta(seconds=ttl_seconds))
+
+        def _sign() -> str:
+            blob = self._bucket().blob(path)
+            return blob.generate_signed_url(
+                version="v4", expiration=timedelta(seconds=ttl_seconds)
+            )
+
+        return self._guarded(_sign)
 
     def delete(self, path: str) -> None:
-        self._bucket().blob(path).delete()
+        def _delete() -> None:
+            self._bucket().blob(path).delete()
+
+        self._guarded(_delete)
 
 
 _storage_singleton: StorageGateway | None = None

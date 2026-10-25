@@ -174,7 +174,8 @@ The API still needs server credentials:
 
 1. Firebase console → **Project settings → Service accounts → Generate new private key**.
    Save the JSON as `secrets/service-account.json` (git-ignored).
-2. Enable Cloud Storage in the console if it is not already active.
+2. Enable Cloud Storage in the console if it is not already active. Storage requires the
+   Blaze (pay-as-you-go) plan; a project without a billing account cannot create a bucket.
 3. In `.env`, set `USE_FIREBASE=true` and keep
    `FIREBASE_PROJECT_ID=placement-app-144e3` and
    `FIREBASE_STORAGE_BUCKET=placement-app-144e3.firebasestorage.app`.
@@ -236,3 +237,7 @@ are never public: the API returns short-lived signed URLs (`SIGNED_URL_TTL_SECON
 - Mutations of attendance, scores, drive outcomes, roles, imports and feedback are audited.
 - Out of scope for v1.1: MCQ quiz engine, FCM push (in-app notifications and an email
   queue document are implemented), recruiter self-service portal, payments, native apps.
+- `placement-app-144e3` has no billing account, so Cloud Storage cannot be provisioned.
+  Resume and offer-letter uploads return `503 storage_unavailable` until the project is
+  upgraded to Blaze and `placement-app-144e3.firebasestorage.app` exists. Auth, Firestore,
+  dashboards, reports and notifications work on the free plan.
