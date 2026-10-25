@@ -33,20 +33,26 @@ class CompaniesService:
         if q:
             filters.append(("name", ">=", q))
             filters.append(("name", "<=", q + "\uf8ff"))
-        return self.repos.companies.list(
+        page = self.repos.companies.list(
             filters,
             order_by="name" if q else "createdAt",
             descending=not q,
             limit=limit,
             cursor=cursor,
         )
+        page.items = [self._decorate(doc) for doc in page.items]
+        return page
+
+    def _decorate(self, company: dict[str, Any]) -> dict[str, Any]:
+        doc = dict(company)
+        doc["driveCount"] = self.repos.drives.count([("companyId", "==", company["id"])])
+        return doc
 
     def get(self, actor: Principal, company_id: str) -> dict[str, Any]:
         company = self.repos.companies.get(company_id)
         if company is None:
             raise NotFound(f"Company {company_id} not found", code="company_not_found")
-        company["driveCount"] = self.repos.drives.count([("companyId", "==", company_id)])
-        return company
+        return self._decorate(company)
 
     def create(self, actor: Principal, payload: CompanyCreate) -> dict[str, Any]:
         if not actor.is_admin:

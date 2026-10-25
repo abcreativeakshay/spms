@@ -236,11 +236,9 @@ class FirestoreStore:
 
         query = self._client.collection(collection)
         for field, op, value in filters:
-            firestore_op = {
-                "not_in": "not-in",
-                "array_contains": "array-contains",
-                "array_contains_any": "array-contains-any",
-            }.get(op, op)
+            # firebase-admin exposes proto enum names: array_contains and
+            # array_contains_any are snake_case, while not_in is hyphenated.
+            firestore_op = {"not_in": "not-in"}.get(op, op)
             query = query.where(filter=FieldFilter(field, firestore_op, value))
         return query
 

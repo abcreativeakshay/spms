@@ -57,9 +57,17 @@ class NotificationService:
         )
 
     def notify_college_admins(
-        self, college_id: str, *, notification_type: NotificationType, title: str, body: str
+        self,
+        college_id: str,
+        *,
+        notification_type: NotificationType,
+        title: str,
+        body: str,
+        link: str | None = None,
     ) -> None:
         admins = self.repos.users.by_role("admin", college_id)
+        # Super admins carry collegeIds=["*"], so `array_contains` never matches
+        # them. Include every super admin explicitly.
         super_admins = [
             user for user in self.repos.users.by_role("admin") if user.get("superAdmin")
         ]
@@ -68,6 +76,7 @@ class NotificationService:
             notification_type=notification_type,
             title=title,
             body=body,
+            link=link,
         )
 
     def list_for_user(

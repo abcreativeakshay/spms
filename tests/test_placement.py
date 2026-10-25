@@ -75,6 +75,7 @@ def test_create_drive_validates_dates_and_company(ctx):
 
 def test_eligibility_apply_and_reasons(ctx):
     _setup(ctx)
+    ctx.seed_user("admin-root", "admin", college_ids=["*"], super_admin=True)
     drive = _create_drive(ctx)
 
     eligible = ctx.client.get("/api/v1/drives", headers=ctx.headers("uid-student-1"))
@@ -95,6 +96,22 @@ def test_eligibility_apply_and_reasons(ctx):
     )
     assert apply.status_code == 201, apply.text
     application_id = apply.json()["id"]
+
+    drive_with_stats = ctx.client.get(
+        f"/api/v1/drives/{drive['id']}", headers=ctx.headers("admin-1")
+    )
+    assert drive_with_stats.json()["stats"]["applied"] == 1
+
+    # The student and every admin who can see the application are notified,
+    # including super admins whose collegeIds are ["*"].
+    student_notes = ctx.client.get(
+        "/api/v1/notifications", headers=ctx.headers("uid-student-1")
+    ).json()["items"]
+    assert student_notes[0]["link"] == f"/applications/{application_id}"
+    root_notes = ctx.client.get(
+        "/api/v1/notifications", headers=ctx.headers("admin-root")
+    ).json()["items"]
+    assert root_notes[0]["link"] == f"/applications/{application_id}"
 
     duplicate = ctx.client.post(
         f"/api/v1/drives/{drive['id']}/apply", headers=ctx.headers("uid-student-1")

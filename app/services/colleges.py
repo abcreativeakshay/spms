@@ -41,13 +41,15 @@ class CollegesService:
             if q:
                 needle = q.lower()
                 docs = [doc for doc in docs if needle in (doc.get("name") or "").lower()]
-            return paginate_items(
+            page = paginate_items(
                 docs,
                 order_by="name" if q else "createdAt",
                 descending=not q,
                 limit=limit,
                 cursor=cursor,
             )
+            page.items = [self._decorate(doc) for doc in page.items]
+            return page
 
         filters: list[tuple[str, str, Any]] = []
         if active is not None:
@@ -55,22 +57,28 @@ class CollegesService:
         if q:
             filters.append(("name", ">=", q))
             filters.append(("name", "<=", q + "\uf8ff"))
-        return self.repos.colleges.list(
+        page = self.repos.colleges.list(
             filters,
             order_by="name" if q else "createdAt",
             descending=not q,
             limit=limit,
             cursor=cursor,
         )
+        page.items = [self._decorate(doc) for doc in page.items]
+        return page
+
+    def _decorate(self, college: dict[str, Any]) -> dict[str, Any]:
+        doc = dict(college)
+        doc["studentCount"] = self.repos.students.count([("collegeId", "==", college["id"])])
+        doc["batchCount"] = self.repos.batches.count([("collegeId", "==", college["id"])])
+        return doc
 
     def get(self, actor: Principal, college_id: str) -> dict[str, Any]:
         college = self.repos.colleges.get(college_id)
         if college is None:
             raise NotFound(f"College {college_id} not found", code="college_not_found")
         ensure_college(actor, college_id)
-        college["studentCount"] = self.repos.students.count([("collegeId", "==", college_id)])
-        college["batchCount"] = self.repos.batches.count([("collegeId", "==", college_id)])
-        return college
+        return self._decorate(college)
 
     def create(self, actor: Principal, payload: CollegeCreate) -> dict[str, Any]:
         if not is_super_admin(actor):

@@ -86,13 +86,22 @@ class ApplicationsService:
         }
         application = self.repos.applications.create(doc, doc_id=f"{drive_id}_{student['id']}")
 
-        admins = self.repos.users.by_role("admin", student.get("collegeId"))
+        title = f"Application submitted — {drive.get('companyName')}"
+        body = f"{student.get('name')} applied for {drive.get('role')}."
+        link = f"/applications/{application['id']}"
         self.notifications.notify(
-            [student.get("uid"), *[admin["id"] for admin in admins]],
+            [student.get("uid")],
             notification_type=NotificationType.APPLICATION,
-            title=f"Application submitted — {drive.get('companyName')}",
-            body=f"{student.get('name')} applied for {drive.get('role')}.",
-            link=f"/applications/{application['id']}",
+            title=title,
+            body=body,
+            link=link,
+        )
+        self.notifications.notify_college_admins(
+            student.get("collegeId"),
+            notification_type=NotificationType.APPLICATION,
+            title=title,
+            body=body,
+            link=link,
         )
         self.audit.record(
             actor, "application.apply", "application", application["id"], after={"driveId": drive_id}

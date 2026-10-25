@@ -55,6 +55,8 @@ def test_college_crud_and_rename_propagation(ctx):
 
     listed = ctx.client.get("/api/v1/colleges?q=Renamed", headers=_admin_headers(ctx))
     assert [c["id"] for c in listed.json()["items"]] == ["college-1"]
+    assert listed.json()["items"][0]["studentCount"] == 1
+    assert listed.json()["items"][0]["batchCount"] == 1
 
     deactivated = ctx.client.delete(
         "/api/v1/colleges/college-1", headers=_admin_headers(ctx)
@@ -264,6 +266,9 @@ def test_company_crud_and_drive_rename(ctx):
 
     listed = ctx.client.get("/api/v1/companies?q=Globex", headers=_admin_headers(ctx))
     assert [c["id"] for c in listed.json()["items"]] == [company_id]
+
+    linked = ctx.client.get("/api/v1/companies?q=Acme", headers=_admin_headers(ctx))
+    assert linked.json()["items"][0]["driveCount"] == 1
 
     deactivated = ctx.client.delete(
         "/api/v1/companies/company-1", headers=_admin_headers(ctx)

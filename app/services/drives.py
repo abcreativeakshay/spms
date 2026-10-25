@@ -269,7 +269,7 @@ class DrivesService:
         for application in applications:
             status_value = application.get("status")
             stats["applied"] += 1
-            if status_value in stats:
+            if status_value and status_value != "applied" and status_value in stats:
                 stats[status_value] += 1
         doc["stats"] = stats
         return doc
