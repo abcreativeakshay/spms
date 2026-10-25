@@ -147,7 +147,7 @@ def _seed_activity(repos: Repos, batch: dict, students: list[dict]) -> None:
     assessment = repos.assessments.get("demo-assessment-1") or repos.assessments.create(
         {
             "batchId": batch["id"],
-            "name": "Week 6 assessment",
+            "title": "Week 6 assessment",
             "type": "assignment",
             "date": (today - timedelta(days=1)).isoformat(),
             "maxMarks": 100,
