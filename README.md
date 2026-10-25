@@ -159,12 +159,25 @@ export USE_FIREBASE=true
 .venv/bin/uvicorn app.main:app --reload --port 8080
 ```
 
-### Real project
+### Real project (placement-app-144e3)
 
-1. Create a Firebase project and enable Auth (email/password), Firestore and Storage.
-2. Put the service account JSON outside the repo (e.g. `secrets/service-account.json`,
-   which is git-ignored) and set `GOOGLE_APPLICATION_CREDENTIALS`.
-3. Set `USE_FIREBASE=true`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`.
+This checkout is already wired to the `placement-app-144e3` Firebase project:
+
+- `.firebaserc` sets it as the default project for the Firebase CLI.
+- `web/.env` (git-ignored) contains the web app's `VITE_FIREBASE_*` config, so the
+  **Email & password** tab works after `npm run dev`.
+- Auth (email/password) and the Firestore `(default)` database are enabled.
+- The web API key is a public client identifier, not a server secret. Never commit a
+  service account key.
+
+The API still needs server credentials:
+
+1. Firebase console → **Project settings → Service accounts → Generate new private key**.
+   Save the JSON as `secrets/service-account.json` (git-ignored).
+2. Enable Cloud Storage in the console if it is not already active.
+3. In `.env`, set `USE_FIREBASE=true` and keep
+   `FIREBASE_PROJECT_ID=placement-app-144e3` and
+   `FIREBASE_STORAGE_BUCKET=placement-app-144e3.firebasestorage.app`.
 4. Seed reference/demo data and create the first admin:
 
 ```bash
@@ -177,9 +190,11 @@ export USE_FIREBASE=true
 
 ### Web client auth
 
-Copy `web/.env.example` → `web/.env` and fill the `VITE_FIREBASE_*` values to enable the
-**Email & password** tab. Without them, only development tokens work. In dev, Vite proxies
-`/api` to `http://localhost:8080` (override with `VITE_PROXY_TARGET`).
+The Vite client reads `VITE_FIREBASE_*` from `web/.env` (git-ignored; already populated for this
+project) and enables the **Email & password** tab. Without those values, only development tokens
+work. Use `web/.env.example` as the template on a fresh machine. The client calls `/api/v1`
+through Vite's dev proxy; override the target with `VITE_PROXY_TARGET` (default
+`http://localhost:8080`) or set `VITE_API_BASE_URL` for a production build.
 
 ---
 
