@@ -65,6 +65,23 @@ def _parse_inline_credentials(raw: str) -> dict[str, Any]:
         ) from exc
 
 
+def credential_source() -> dict[str, Any]:
+    """Which credential source ``init_firebase`` will use, without exposing key material."""
+    path = settings.google_application_credentials
+    inline = settings.google_application_credentials_json
+    if path and os.path.exists(path):
+        return {"source": "file", "path": path, "bytes": os.path.getsize(path)}
+    if path:
+        return {
+            "source": "missing_file",
+            "path": path,
+            "inlineChars": len(inline or ""),
+        }
+    if inline:
+        return {"source": "inline_json", "chars": len(inline)}
+    return {"source": "application_default"}
+
+
 def init_firebase() -> Any:
     """Initialise (once) and return the firebase_admin app."""
     import firebase_admin

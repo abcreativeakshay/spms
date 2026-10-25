@@ -41,3 +41,23 @@ def test_truncated_env_value_points_at_secret_files():
     truncated = json.dumps({**ACCOUNT, "private_key": long_key})[:1888]
     with pytest.raises(ValueError, match="secret file"):
         fb._parse_inline_credentials(truncated)
+
+
+def test_credential_source_names_a_missing_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(fb.settings, "google_application_credentials", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(fb.settings, "google_application_credentials_json", None)
+    assert fb.credential_source() == {
+        "source": "missing_file",
+        "path": str(tmp_path / "nope.json"),
+        "inlineChars": 0,
+    }
+
+
+def test_credential_source_prefers_an_existing_file(monkeypatch, tmp_path):
+    key = tmp_path / "sa.json"
+    key.write_text(json.dumps(ACCOUNT))
+    monkeypatch.setattr(fb.settings, "google_application_credentials", str(key))
+    monkeypatch.setattr(fb.settings, "google_application_credentials_json", json.dumps(ACCOUNT))
+    info = fb.credential_source()
+    assert info["source"] == "file"
+    assert info["bytes"] == key.stat().st_size

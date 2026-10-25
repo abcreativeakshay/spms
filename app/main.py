@@ -52,8 +52,17 @@ TAGS_METADATA = [
 async def lifespan(_: FastAPI):
     configure_logging(settings.debug)
     if settings.use_firebase:
-        from app.core.firebase import init_firebase
+        from app.core.firebase import credential_source, init_firebase
 
+        logger.info(
+            "Initializing Firebase",
+            extra={
+                "extra_fields": {
+                    "project": settings.firebase_project_id,
+                    "credentials": credential_source(),
+                }
+            },
+        )
         init_firebase()
         logger.info("Firebase initialized", extra={"extra_fields": {"project": settings.firebase_project_id}})
         if settings.firestore_warm_cache:
