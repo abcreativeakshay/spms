@@ -5,28 +5,66 @@ assessments, interview feedback, placement drives, eligibility, applications, of
 notifications, audit trail and CSV/PDF reporting.
 
 The API is FastAPI + Firebase (Auth, Firestore, Cloud Storage) and the web client is
-React + Vite + Tailwind. **The whole stack runs locally with no Firebase credentials** using
-an in-memory document store and development tokens.
+React + Vite + Tailwind. It runs against the real Firebase project, or fully offline with an
+in-memory store for a quick look.
 
 - Product requirements: [`docs/PRD.md`](docs/PRD.md)
 - Engineering conventions: [`AGENTS.md`](AGENTS.md)
 
 ---
 
-## Quick start (demo mode, no Firebase)
+## Quick start (Firebase-backed)
+
+This is the normal mode: Firestore holds the data and Firebase Auth issues the ID tokens.
+You need the service-account key for `placement-app-144e3` from the project owner.
 
 ```bash
-# 1. Backend
+# 1. install
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+# 2. point the checkout at the service-account key
+python3 scripts/setup_local.py --service-account ~/Downloads/placement-app-144e3.json
+
+# 3. verify Firestore + Auth, then start the API
+.venv/bin/python scripts/setup_local.py --check
+.venv/bin/uvicorn app.main:app --port 8080
+
+# 4. web client (new terminal)
+cd web
+npm install
+npm run dev          # http://localhost:5173
+```
+
+`setup_local.py` is the only setup step. It copies the key to `secrets/service-account.json`
+(git-ignored, mode 600), writes `.env` (`USE_FIREBASE=true`, project id, key path, cache
+warm-up), and creates `web/.env` from `web/.env.example`, which already carries the
+project's public Firebase web config. Every value it writes is a default: re-running it
+never overwrites a non-empty setting you changed. `--check` samples Firestore and Firebase
+Auth and exits non-zero if the key, project or APIs are wrong.
+
+Sign in on the **Email & password** tab with an account from the project (for example
+`admin@spms.dev`); the owner shares the passwords. The **Development** tab only works in
+demo mode, because it bypasses Firebase Auth.
+
+`secrets/` is git-ignored. Never commit the service-account key, and rotate it if it has
+been shared outside the team.
+
+---
+
+## Quick start (demo mode, no Firebase)
+
+Useful for a screenshots-only run or for CI. No credentials, data in memory, reset on
+restart.
+
+```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env
 
 SEED_DEMO=true .venv/bin/uvicorn app.main:app --reload --port 8080
 
-# 2. Web client (new terminal)
-cd web
-npm install
-npm run dev          # http://localhost:5173
+cd web && npm install && npm run dev     # http://localhost:5173
 ```
 
 Open <http://localhost:5173> and sign in with a demo account. The **Development**
@@ -84,8 +122,8 @@ spms/
     routers/         # HTTP endpoints (auth → services)
     services/        # business logic (eligibility, readiness, exports, audit, …)
     repositories/    # DocumentStore implementations + repositories
-  tests/             # 62 API tests, no production credentials required
-  scripts/           # seed reference data, create a Firebase super admin
+  tests/             # 83 API tests, no production credentials required
+  scripts/           # local Firebase setup, seed reference data, create a super admin
   web/               # React + Vite client
   docs/PRD.md
   firebase.json, firestore.rules, firestore.indexes.json, storage.rules
