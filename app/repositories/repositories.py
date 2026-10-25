@@ -43,7 +43,8 @@ class BaseRepository:
 
     def find_one(self, **fields: Any) -> dict[str, Any] | None:
         filters = [(field, "==", value) for field, value in fields.items()]
-        docs = self.find(filters, limit=1)
+        # Equality lookups do not need an ordering or a composite index.
+        docs = self.store.query(self.collection, filters, limit=1)
         return docs[0] if docs else None
 
     def list(

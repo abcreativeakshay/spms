@@ -4,6 +4,8 @@
     { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeIds", "arrayConfig": "CONTAINS" }, { "fieldPath": "active", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "cgpa", "order": "DESCENDING" }] },
+    { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "name", "order": "ASCENDING" }] },
+    { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "name", "order": "ASCENDING" }] },
     { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "placementStatus", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     { "collectionGroup": "students", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "batchId", "order": "ASCENDING" }, { "fieldPath": "placementStatus", "order": "ASCENDING" }] },
     { "collectionGroup": "batches", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "collegeId", "order": "ASCENDING" }, { "fieldPath": "startDate", "order": "DESCENDING" }] },

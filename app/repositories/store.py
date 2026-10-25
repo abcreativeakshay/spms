@@ -254,10 +254,8 @@ class FirestoreStore:
         start_value: Any = None,
         start_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        from google.cloud.firestore_v1.base_query import Query
-
         query = self._build_query(collection, filters)
-        direction = Query.DESCENDING if descending else Query.ASCENDING
+        direction = "DESCENDING" if descending else "ASCENDING"
         if order_by:
             query = query.order_by(order_by, direction=direction)
             # Stable tiebreaker; start_after needs both key parts.

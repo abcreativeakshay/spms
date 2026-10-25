@@ -178,7 +178,14 @@ The API still needs server credentials:
 3. In `.env`, set `USE_FIREBASE=true` and keep
    `FIREBASE_PROJECT_ID=placement-app-144e3` and
    `FIREBASE_STORAGE_BUCKET=placement-app-144e3.firebasestorage.app`.
-4. Seed reference/demo data and create the first admin:
+4. Deploy rules and indexes **before seeding**. Composite indexes are created
+   asynchronously; wait for them to reach `READY` in the console before the first seed:
+
+```bash
+npx firebase deploy --only firestore:rules,firestore:indexes
+```
+
+5. Seed reference/demo data and create the first admin:
 
 ```bash
 .venv/bin/python scripts/seed.py
@@ -186,7 +193,7 @@ The API still needs server credentials:
   --email admin@yourcollege.edu --password 'ChangeMe123!'
 ```
 
-5. Deploy rules/indexes: `npx firebase deploy --only firestore:rules,firestore:indexes,storage`.
+6. After the Cloud Storage bucket exists, deploy Storage rules: `npx firebase deploy --only storage`.
 
 ### Web client auth
 
