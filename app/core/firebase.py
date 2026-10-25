@@ -69,9 +69,10 @@ def credential_source() -> dict[str, Any]:
     """Which credential source ``init_firebase`` will use, without exposing key material."""
     path = settings.google_application_credentials
     inline = settings.google_application_credentials_json
-    if path and os.path.exists(path):
-        return {"source": "file", "path": path, "bytes": os.path.getsize(path)}
     if path:
+        resolved = _resolve_credentials_file(path)
+        if resolved:
+            return {"source": "file", "path": resolved, "bytes": os.path.getsize(resolved)}
         return {
             "source": "missing_file",
             "path": path,
@@ -82,16 +83,68 @@ def credential_source() -> dict[str, Any]:
     return {"source": "application_default"}
 
 
+def _secret_candidates(path: str) -> list[str]:
+    """Plausible locations for a mounted secret, including k8s-style atomic mounts.
+
+    Projected volumes expose the payload through a ``..data`` symlink (and a
+    timestamped sibling directory), so ``/etc/secrets`` can look empty even though a
+    file was mounted.
+    """
+    parent = os.path.dirname(path) or "."
+    name = os.path.basename(path)
+    candidates = [path, os.path.join(parent, "..data", name)]
+    if os.path.isdir(parent):
+        try:
+            entries = sorted(os.listdir(parent))
+        except OSError:
+            entries = []
+        for entry in entries:
+            full = os.path.join(parent, entry)
+            if entry.endswith(".json") and os.path.isfile(full):
+                candidates.append(full)
+            if entry.startswith("..") and os.path.isdir(full):
+                try:
+                    inner = sorted(os.listdir(full))
+                except OSError:
+                    inner = []
+                candidates.extend(
+                    os.path.join(full, item) for item in inner if item.endswith(".json")
+                )
+    seen: list[str] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.append(candidate)
+    return seen
+
+
+def _resolve_credentials_file(path: str) -> str | None:
+    for candidate in _secret_candidates(path):
+        if os.path.isfile(candidate) and os.access(candidate, os.R_OK):
+            return candidate
+    return None
+
+
+def _describe_path(path: str) -> str:
+    try:
+        target = os.readlink(path) if os.path.islink(path) else ""
+    except OSError:
+        target = ""
+    return f"{path} -> {target}" if target else path
+
+
 def _missing_credentials_message(path: str) -> str:
     parent = os.path.dirname(path) or "."
     try:
         entries = sorted(os.listdir(parent)) if os.path.isdir(parent) else []
     except OSError:
         entries = []
+    described = [_describe_path(os.path.join(parent, entry)) for entry in entries]
+    searched = _secret_candidates(path)
     return (
-        f"GOOGLE_APPLICATION_CREDENTIALS points to {path}, which does not exist. "
-        f"Contents of {parent}: {entries or 'directory missing'}. "
-        f"Add a secret file named {os.path.basename(path)!r}; it is mounted at "
+        f"GOOGLE_APPLICATION_CREDENTIALS points to {path}, which is not readable. "
+        f"Contents of {parent}: {described or 'directory missing'}. "
+        f"Searched: {searched}. Add a secret file named {os.path.basename(path)!r} "
+        f"to this service (Environment -> Secret Files); it is mounted at "
         f"/etc/secrets/{os.path.basename(path)}."
     )
 
@@ -110,12 +163,14 @@ def init_firebase() -> Any:
     # length, which silently truncates a service-account key.
     cred_path = settings.google_application_credentials
     inline = settings.google_application_credentials_json
-    if cred_path and os.path.exists(cred_path):
-        cred = credentials.Certificate(cred_path)
-    elif cred_path:
-        # Explicitly configured but not mounted: fail with the directory listing rather
-        # than falling through to ApplicationDefault, which fails later inside Firestore.
-        raise RuntimeError(_missing_credentials_message(cred_path))
+    if cred_path:
+        resolved = _resolve_credentials_file(cred_path)
+        if resolved is None:
+            # Explicitly configured but not mounted: fail here with the directory listing
+            # rather than falling through to ApplicationDefault, which fails later inside
+            # Firestore with a much less useful error.
+            raise RuntimeError(_missing_credentials_message(cred_path))
+        cred = credentials.Certificate(resolved)
     elif inline:
         cred = credentials.Certificate(_parse_inline_credentials(inline))
     else:

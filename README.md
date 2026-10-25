@@ -106,7 +106,7 @@ college-scoped (`collegeIds` claim, `superAdmin` bypasses).
 ```
 
 The suite uses `app.dependency_overrides` for the store and `dev:` tokens, so it never
-needs Firebase credentials. Current status: **81 passing**, ~84% statement coverage.
+needs Firebase credentials. Current status: **82 passing**, ~84% statement coverage.
 
 ## Performance
 
@@ -277,8 +277,11 @@ SPA fallback to `index.html`. Connect the repo in the Netlify UI, then set
 1. Render dashboard → **New → Blueprint** → pick the `spms` repository.
 2. Add the service account as a **Secret File** — **Environment → Secret Files → Add**:
    filename `service-account.json`, contents = `secrets/service-account.json`. Render mounts
-   it read-only at `/etc/secrets/service-account.json`, and the blueprint already sets
-   `GOOGLE_APPLICATION_CREDENTIALS` to that path.
+   it read-only for Docker services at `/etc/secrets/service-account.json`, and the blueprint
+   sets `GOOGLE_APPLICATION_CREDENTIALS` to that path. The image's app user is UID/GID 1000,
+   which is the group Render gives mounted secret files. Projected mounts (k8s-style
+   `..data` directories) are searched as well; if startup reports `missing_file`, the file
+   is not attached to this service.
 3. Set `CORS_ORIGINS` to the client origin, e.g.
    `https://<user>-spms-web.static.hf.space` (public value, editable in the blueprint).
 4. `FIREBASE_PROJECT_ID`, `FIRESTORE_WARM_CACHE`, `WEB_CONCURRENCY=1` and the rest are set

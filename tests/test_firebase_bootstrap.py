@@ -71,3 +71,21 @@ def test_missing_configured_file_lists_the_secrets_directory(monkeypatch, tmp_pa
     message = fb._missing_credentials_message(str(tmp_path / "service-account.json"))
     assert "other-key.json" in message
     assert "/etc/secrets/service-account.json" in message
+
+
+def test_projected_secret_volume_is_searched(monkeypatch, tmp_path):
+    """Render mounts secrets as a k8s-style projected volume; find the payload inside."""
+    payload = tmp_path / "..2026_10_25_14_49_56.301636"
+    payload.mkdir()
+    (payload / "service-account.json").write_text(json.dumps(ACCOUNT))
+    (tmp_path / "..data").symlink_to(payload.name, target_is_directory=True)
+
+    want = str(tmp_path / "service-account.json")
+    resolved = fb._resolve_credentials_file(want)
+    assert resolved is not None
+    assert resolved.endswith("service-account.json")
+    assert json.loads(open(resolved).read()) == ACCOUNT
+
+    monkeypatch.setattr(fb.settings, "google_application_credentials", want)
+    monkeypatch.setattr(fb.settings, "google_application_credentials_json", None)
+    assert fb.credential_source()["source"] == "file"

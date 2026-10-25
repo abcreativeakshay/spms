@@ -16,7 +16,9 @@ COPY scripts ./scripts
 ENV PORT=8080
 EXPOSE 8080
 
-RUN useradd -m appuser && chown -R appuser /app
+# UID/GID 1000 matches the group Render uses for mounted secret files, so the app user
+# can read /etc/secrets/*.json (they are root:1000, mode 0640).
+RUN useradd -m -u 1000 appuser && chown -R appuser /app
 USER appuser
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-2}"]
