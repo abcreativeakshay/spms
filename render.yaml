@@ -1,0 +1,42 @@
+# Render blueprint for the FastAPI API. The React client is a Hugging Face static Space
+# (scripts/deploy_hf_web.py) or a Netlify site (netlify.toml).
+#
+# Usage: Render dashboard -> New -> Blueprint -> pick this repository, then fill the one
+# value marked `sync: false`:
+#   GOOGLE_APPLICATION_CREDENTIALS_JSON  contents of secrets/service-account.json (one line)
+#
+# Free services sleep after 15 minutes idle; the first request after a pause is slow.
+services:
+  - type: web
+    name: spms-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: USE_FIREBASE
+        value: "true"
+      - key: FIREBASE_PROJECT_ID
+        value: placement-app-144e3
+      - key: FIREBASE_STORAGE_BUCKET
+        value: placement-app-144e3.firebasestorage.app
+      - key: FIRESTORE_WARM_CACHE
+        value: "true"
+      - key: FIRESTORE_CACHE_TTL_SECONDS
+        value: "30"
+      - key: FIREBASE_CHECK_REVOKED
+        value: "false"
+      - key: SEED_DEMO
+        value: "false"
+      - key: ALLOW_DEV_TOKENS
+        value: "false"
+      # One worker: the read cache is per-process, so extra workers each pay for their
+      # own Firestore round-trips on a 512 MB free instance.
+      - key: WEB_CONCURRENCY
+        value: "1"
+      # Public origins, not secrets: update when the client moves (Netlify, custom domain).
+      - key: CORS_ORIGINS
+        value: https://abcreativeakshay-spms-web.static.hf.space
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false

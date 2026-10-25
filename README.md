@@ -243,33 +243,50 @@ through Vite's dev proxy; override the target with `VITE_PROXY_TARGET` (default
 
 The app is two deployments: a static React client and a Python API.
 
-### Web client (Netlify)
+| Piece | Host | Cost | Notes |
+| --- | --- | --- | --- |
+| Client | Hugging Face static Space | free | `scripts/deploy_hf_web.py` |
+| API | Render (Docker) | free | `render.yaml`, sleeps when idle |
+
+### Client (Hugging Face static Space)
+
+`scripts/deploy_hf_web.py` builds `web/` locally (so `web/.env`'s Firebase config is baked
+in) and uploads `dist/` to a static Space. `VITE_API_BASE_URL` is inlined at build time —
+re-run the script whenever the API URL changes.
+
+```bash
+python3 scripts/deploy_hf_web.py --space <user>/spms-web --api-base https://<api-host>/api/v1
+```
+
+The site is served from `https://<user>-<space>.static.hf.space`. Static Spaces have no
+rewrite rules, so only `/` loads directly; in-app navigation works, but refreshing a deep
+link returns HF's 404. Add that domain to **Firebase console → Authentication → Settings →
+Authorized domains**.
+
+### Client (Netlify, alternative)
 
 `netlify.toml` builds `web/` (`npm ci && npm run build`) and publishes `web/dist` with an
-SPA fallback to `index.html`.
+SPA fallback to `index.html`. Connect the repo in the Netlify UI, then set
+`VITE_API_BASE_URL` plus the `VITE_FIREBASE_*` variables from `web/.env.example` in
+**Site configuration → Environment variables** before the first build.
 
-1. Connect the GitHub repo in the Netlify UI, or run `npx netlify deploy --prod` from the
-   repository root.
-2. Set these environment variables in **Site configuration → Environment variables**
-   (build time — Vite inlines them, so change them *before* the build):
+### API (Render)
 
-   | Variable | Value |
-   | --- | --- |
-   | `VITE_API_BASE_URL` | `https://<api-host>/api/v1` |
-   | `VITE_FIREBASE_API_KEY` | web API key |
-   | `VITE_FIREBASE_AUTH_DOMAIN` | `<project>.firebaseapp.com` |
-   | `VITE_FIREBASE_PROJECT_ID` | `placement-app-144e3` |
-   | `VITE_FIREBASE_APP_ID` | web app id |
-   | `VITE_FIREBASE_STORAGE_BUCKET` | optional |
-   | `VITE_FIREBASE_MESSAGING_SENDER_ID` | optional |
+`render.yaml` defines a free Docker web service running the repo's `Dockerfile`:
 
-3. Add the Netlify URL to the API's `CORS_ORIGINS` (comma-separated, no trailing slash)
-   and to the Firebase console's authorized domains for email/password sign-in.
+1. Render dashboard → **New → Blueprint** → pick the `spms` repository.
+2. Fill the two values marked `sync: false`:
+   - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — the contents of `secrets/service-account.json`
+     (one line; the API accepts plain JSON or base64).
+   - `CORS_ORIGINS` — the client origin, e.g.
+     `https://<user>-spms-web.static.hf.space`.
+3. `FIREBASE_PROJECT_ID`, `FIRESTORE_WARM_CACHE`, `WEB_CONCURRENCY=1` and the rest are set
+   by the blueprint.
 
-Netlify Functions cannot run this backend: Netlify only supports JavaScript/TypeScript and
-Go functions, so the FastAPI app must live on a Python host.
+Free services sleep after 15 minutes idle, so the first request afterwards pays a cold
+start; the startup cache warm-up then runs in the background. Health probe: `/health`.
 
-### API (Cloud Run)
+### API (Cloud Run, alternative)
 
 ```bash
 gcloud run deploy spms-api --source . --region asia-south1 --allow-unauthenticated
@@ -279,31 +296,15 @@ Grant the runtime service account Firestore access instead of shipping a key, an
 `USE_FIREBASE=true`, `CORS_ORIGINS`, `FIREBASE_PROJECT_ID`, the readiness/attendance
 variables and `FIRESTORE_WARM_CACHE=true`.
 
-### API (Hugging Face Space)
+### API (Hugging Face Space, requires PRO)
 
-Hugging Face Spaces run the API from the same `Dockerfile`. `scripts/deploy_hf.py` stages a
-minimal copy of the backend (`app/`, `scripts/`, `requirements.txt`, `Dockerfile`) plus the
-Space `README.md` frontmatter (`sdk: docker`, `app_port: 8080`) and uploads it. `web/`,
-`tests/` and `secrets/` are never uploaded.
+Docker Spaces on Hugging Face need a PRO subscription ($9/month); static Spaces are free.
+With PRO, `scripts/deploy_hf.py` stages the backend and publishes it with the same
+`Dockerfile`, uploading `secrets/service-account.json` as a write-only Space secret:
 
 ```bash
-pip install huggingface_hub        # or: hf update
-hf auth login                      # token with write access
-python3 scripts/deploy_hf.py --space <user>/spms-api --cors https://<site>.netlify.app
+python3 scripts/deploy_hf.py --space <user>/spms-api --cors https://<site>
 ```
-
-The script creates the Space on the first run, sets the runtime variables
-(`USE_FIREBASE=true`, `WEB_CONCURRENCY=1`, `FIRESTORE_WARM_CACHE=true`, `CORS_ORIGINS`, ...)
-and, when `secrets/service-account.json` exists, stores it as the write-only Space secret
-`GOOGLE_APPLICATION_CREDENTIALS_JSON`. The API's own env parser accepts that secret as plain
-JSON or base64.
-
-The Space is reachable at `https://<user>-<space>.hf.space` (`/docs`, `/health`,
-`/api/v1`). Free Spaces sleep after a period of inactivity, so the first request afterwards
-pays a cold start; the startup cache warm-up then runs in the background.
-
-Any container host (Cloud Run, Render, Fly.io) works the same way: set the same variables
-and pass the service-account JSON through `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
 
 Uploaded resumes and offer letters are never public: the API returns short-lived signed
 URLs (`SIGNED_URL_TTL_SECONDS`).
