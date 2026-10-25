@@ -218,7 +218,7 @@ class FirestoreStore:
 
     def update(self, collection: str, doc_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         from app.core.errors import NotFound
-        from google.cloud.firestore_v1 import NotFound as FirestoreNotFound
+        from google.api_core.exceptions import NotFound as FirestoreNotFound
 
         payload = {k: v for k, v in patch.items() if k != "id"}
         try:
@@ -236,10 +236,11 @@ class FirestoreStore:
 
         query = self._client.collection(collection)
         for field, op, value in filters:
-            firestore_op = {**{o: o for o in ["==", "!=", "in", "not_in", ">", ">=", "<", "<="]},
-                            "not_in": "not-in",
-                            "array_contains": "array_contains",
-                            "array_contains_any": "array_contains_any"}.get(op, op)
+            firestore_op = {
+                "not_in": "not-in",
+                "array_contains": "array-contains",
+                "array_contains_any": "array-contains-any",
+            }.get(op, op)
             query = query.where(filter=FieldFilter(field, firestore_op, value))
         return query
 

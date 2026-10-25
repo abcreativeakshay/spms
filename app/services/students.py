@@ -107,8 +107,17 @@ class StudentsService:
             ]
             return paginate_items(docs, order_by="name", limit=limit, cursor=cursor)
 
-        # Small college-scoped result sets are easier (and cheaper) in memory.
-        if actor.role == Role.TRAINER or (college_id and at_risk is not None):
+        # Multi-filter result sets are easier (and cheaper) in memory than maintaining
+        # a composite index for every filter combination.
+        if (
+            actor.role == Role.TRAINER
+            or batch_id
+            or skills
+            or min_cgpa is not None
+            or max_cgpa is not None
+            or placement_status
+            or at_risk is not None
+        ):
             docs = self.repos.students.all(filters, cap=20000)
             return paginate_items(docs, order_by="createdAt", descending=True, limit=limit, cursor=cursor)
 
